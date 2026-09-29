@@ -452,8 +452,11 @@ export function renderEnrollPanel(root: HTMLElement, store: Store): void {
       h(
         'p',
         {},
-        'Dodis, Reyzin and Smith call this the code-offset secure sketch; Juels and Wattenberg ' +
-          'published the same construction in 1999 as fuzzy commitment.',
+        'Dodis, Ostrovsky, Reyzin and Smith give this as Construction 2, the code-offset ' +
+          'construction, and say outright that over the binary alphabet it is the Juels–Wattenberg ' +
+          'commitment of 1999. Their Construction 3 publishes the syndrome directly instead, and ' +
+          'the paper proves the two equivalent in both directions — which is the equality measured ' +
+          'just above. (Numbering from the ePrint revision of 20 January 2008.)',
       ),
     ),
     disclosure(
@@ -482,8 +485,14 @@ export function renderEnrollPanel(root: HTMLElement, store: Store): void {
             'tr',
             {},
             h('td', {}, h('code', {}, DECODE_RESIDUAL_SYNDROME)),
-            h('td', {}, 'the corrected word still has a nonzero syndrome'),
-            h('td', {}, 'the device'),
+            h(
+              'td',
+              {},
+              'the corrected word still has a nonzero syndrome — ',
+              h('strong', {}, 'never observed'),
+              ': over the whole 32,768-word space of BCH(15, 7) and 20,000 heavy-error decodes across all five codes, the check above catches every inconsistent error locator first',
+            ),
+            h('td', {}, 'the device, in principle'),
           ),
           h(
             'tr',

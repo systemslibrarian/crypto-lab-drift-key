@@ -173,6 +173,26 @@ export function messageOf(code: BchCode, codeword: BitVec): BitVec {
 /**
  * Failure codes the decoder can raise, exported so the UI names the real cause
  * rather than paraphrasing it and the claims suite can assert on the constant.
+ *
+ * DECODE_RESIDUAL_SYNDROME HAS NEVER BEEN OBSERVED TO FIRE, and that is
+ * recorded here rather than left to be discovered. Removing the check it
+ * guards left the whole suite green, which under template §4.1c is evidence
+ * about the SOURCE and not about the tests, so it was measured: across the
+ * entire 2^15-word space of BCH(15,7) and 20,000 heavy-error decodes spread
+ * over all five codes this lab offers, every single failure came back
+ * DECODE_BEYOND_RADIUS. The root-count test above catches every inconsistent
+ * error locator first.
+ *
+ * The check stays anyway, and the reason is worth stating. It is the last
+ * verification standing between "corrected" and a best guess: if
+ * Berlekamp-Massey or the Chien search were ever wrong in a way that still
+ * produced the right number of distinct roots, this is the only thing that
+ * would notice. A guard whose value is that it never fires cannot be justified
+ * by a test, so it is justified here instead — and `bch.test.ts` asserts the
+ * measurement, so the day it does fire, the claim in this comment fails with it.
+ *
+ * The page's failure-code table says the same thing rather than listing a code
+ * it cannot raise.
  */
 export const DECODE_BEYOND_RADIUS = 'DECODE_BEYOND_RADIUS';
 export const DECODE_RESIDUAL_SYNDROME = 'DECODE_RESIDUAL_SYNDROME';

@@ -125,7 +125,7 @@ export function renderContextPanel(root: HTMLElement, store: Store): void {
         ),
         ref(
           'Dodis, Y., Ostrovsky, R., Reyzin, L. and Smith, A. (2008). "Fuzzy Extractors: How to Generate Strong Keys from Biometrics and Other Noisy Data." SIAM Journal on Computing 38(1), 97–139.',
-          'The journal version. The source of the bound quoted on this page: for a binary linear [n, k] code, the code-offset sketch leaves average min-entropy at least m − (n − k).',
+          'The journal version, and the source of every statement quoted on this page. Construction 2 is the code-offset construction and says outright that over the binary alphabet it IS the Juels–Wattenberg commitment, SS(w) = w XOR C(x). Construction 3 is the syndrome construction, and the text proves the two equivalent. Theorem 5.1 gives the entropy loss: an [n, k, 2t+1] code over F yields an average-case (F^n, m, m − (n − k)f, t) secure sketch — for the binary alphabet, f = 1, so the loss is n − k bits. Lemma 2.2(b) is the general result underneath it. Lemma 4.1 builds the fuzzy extractor from a sketch plus an average-case strong extractor, whose own loss is separate.',
         ),
         ref(
           'Boyen, X. (2004). "Reusable Cryptographic Fuzzy Extractors." ACM CCS 2004.',
@@ -149,10 +149,13 @@ export function renderContextPanel(root: HTMLElement, store: Store): void {
         ),
       ),
       callout(
-        'info',
-        'Theorem and construction numbers are deliberately not quoted here. The statements above ' +
-          'are given in full instead, so they can be checked against the papers directly rather ' +
-          'than through a number that may not match the edition you have.',
+        'caveat',
+        h('strong', {}, 'Which edition those numbers came from. '),
+        'They were read from the ePrint at eprint.iacr.org/2003/235, in the revision dated ' +
+          '20 January 2008, which is the journal version — not from the printed SIAM pages. ' +
+          'Numbering can differ between a preprint and the copy-edited article, so the statements ' +
+          'are given in full above as well: check those rather than the numbers if the two ever ' +
+          'disagree.',
       ),
     ),
     h('h3', {}, 'Related demos'),

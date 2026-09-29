@@ -47,6 +47,28 @@ async function openTab(page: Page, name: string, panelId: string): Promise<void>
   await expect(page.locator(panelId)).not.toBeEmpty();
 }
 
+/**
+ * Enrol until the reproduction succeeds, and return how many it took.
+ *
+ * At the shipped defaults -- BCH(127, 64) and a 4% bit-error rate -- about one
+ * reading in seventy-seven drifts past the radius of ten and the stepper
+ * renders its FAILURE branch instead of the key comparison. That is the page
+ * being right, not wrong: the reliability panel predicts exactly 1.3% there.
+ * But a test that steps through and then asserts on the key comparison is a
+ * test that goes red one run in seventy-seven, so the branch is pinned here
+ * rather than hoped for. The failure branch is driven deliberately elsewhere,
+ * by pushing the bit-error rate past the radius.
+ */
+async function enrolUntilReproduced(page: Page, attempts = 40): Promise<number> {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const result = await page.locator('[data-verdict="reproduce"]').getAttribute('data-result');
+    if (result === 'pass') return attempt;
+    await page.locator('#enrol-again').click();
+    await expect(page.locator('[data-verdict="reproduce"]')).toBeVisible();
+  }
+  throw new Error(`no reproduction succeeded in ${attempts} enrolments`);
+}
+
 /** The full value behind an elided readout: the `title`, or the text if short. */
 async function fullValue(locator: Locator): Promise<string> {
   const title = await locator.getAttribute('title');
@@ -137,6 +159,7 @@ test.describe('the construction', () => {
   test('the stepper ends with the same key, and both sides are printed in full', async ({ page }) => {
     await boot(page);
     await openTab(page, 'Enrol & Reproduce', '#panel-enroll');
+    await enrolUntilReproduced(page);
     expect(await readClaim(page, 'enroll-step')).toBe('Step 0 / 6');
 
     for (let i = 1; i <= 6; i++) {

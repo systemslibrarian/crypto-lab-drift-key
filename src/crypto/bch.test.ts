@@ -303,6 +303,22 @@ describe('BCH(15,7) decoding characterised over the whole 2^15 space', () => {
     expect(outside).toBeGreaterThan(0);
   });
 
+  it('every failure over the whole space is BEYOND_RADIUS, never a residual syndrome', () => {
+    // The measurement behind the comment on DECODE_RESIDUAL_SYNDROME in bch.ts.
+    // Deleting the codeword verification that raises it leaves the entire suite
+    // green, so its unreachability is asserted rather than assumed: if
+    // Berlekamp-Massey or the Chien search ever changes in a way that lets an
+    // inconsistent locator through the root-count test, this fails and the
+    // comment fails with it.
+    const seen = new Set<string>();
+    for (let v = 0; v < 1 << code.n; v++) {
+      const result = decode(code, fromInt(v, code.n));
+      if (result.status === 'failure') seen.add(result.failureCode);
+    }
+    expect([...seen]).toEqual([DECODE_BEYOND_RADIUS]);
+    expect(seen.has(DECODE_RESIDUAL_SYNDROME)).toBe(false);
+  });
+
   it('the all-ones word is a codeword here, so a "saturated" input decodes clean', () => {
     // Recorded because it is the counter-example to the obvious test: "fill the
     // word with ones and expect a failure" asserts something false about this

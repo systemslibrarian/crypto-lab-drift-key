@@ -225,15 +225,25 @@ export function renderCostPanel(root: HTMLElement, store: Store): void {
           'holding the published data. The bound holds for any source with min-entropy m, ' +
           'uniform or not.',
       ),
+      h(
+        'p',
+        {},
+        'This is Theorem 5.1 of Dodis, Ostrovsky, Reyzin and Smith, which gives an [n, k, 2t+1] ' +
+          'code over F an average-case (F^n, m, m − (n − k)f, t) secure sketch. Over the binary ' +
+          'alphabet f = 1, so the loss is n − k bits. It rests on their Lemma 2.2(b): a value with ' +
+          'at most 2^λ possibilities costs at most λ bits of average min-entropy, and the syndrome ' +
+          'has exactly 2^(n−k) possibilities. (Numbering from the ePrint revision of 20 January 2008.)',
+      ),
       callout(
         'caveat',
         h('strong', {}, 'This is not the entropy of the key. '),
-        'The key comes from a separate extraction step, which has its own loss. The security ' +
-          'proof for fuzzy extractors uses a strong randomness extractor — universal hashing and ' +
-          'the leftover hash lemma — and gives an information-theoretic statement about how close ' +
-          'the output is to uniform. This lab derives its key with HKDF-SHA-256 instead, which is ' +
-          'what a real device ships and rests on different assumptions. Nothing on this page ' +
-          'claims a bit count for the key itself.',
+        'The key comes from a separate extraction step, which has its own loss. Lemma 4.1 of the ' +
+          'same paper builds a fuzzy extractor from a secure sketch plus an average-case strong ' +
+          'extractor, and universal hash functions qualify only while the output length stays ' +
+          'below the residual by twice the log of the statistical distance you will accept. That ' +
+          'is an information-theoretic statement about how close the key is to uniform. This lab ' +
+          'derives its key with HKDF-SHA-256 instead, which is what a real device ships and rests ' +
+          'on different assumptions. Nothing on this page claims a bit count for the key itself.',
       ),
       h(
         'p',
