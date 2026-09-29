@@ -274,27 +274,51 @@ export async function boot(page: Page, theme: 'dark' | 'light'): Promise<void> {
   // ── Invariant I7: the simulated-source banner, and no way to dismiss it ──
   // The page claims the source is a model. §4.1d says a claim with nothing
   // checking it is a claim that drifts, so the claim's own visibility is
-  // asserted here at every boot, and the absence of any control inside it is
-  // asserted too — a dismissible banner is a banner that is not there.
+  // asserted at every boot. The banner now carries a disclosure holding the
+  // long form; a `<summary>` opens detail and cannot remove the banner, so the
+  // dismissal check names the shapes that COULD -- a button, a link, a control
+  // labelled to close or hide -- rather than counting every element.
   const banner = page.locator('.model-banner');
   await expect(banner).toBeVisible();
-  await expect(banner).toContainText('There is no physical device in this page');
-  await expect(banner.locator('button, a, input, [role="button"]')).toHaveCount(0);
+  await expect(banner).toContainText('No physical device here');
+  await expect(banner).toContainText('Not production crypto');
+  await expect(
+    banner.locator('button, a, input, [role="button"], [aria-label*="ismiss"], [aria-label*="lose"], [aria-label*="ide"]')
+  ).toHaveCount(0);
+  // And the headline sentence is outside the disclosure, so closing it changes
+  // nothing about whether the claim is on screen.
+  await expect(banner.locator('> .model-banner-body > p')).toContainText('No physical device here');
 
-  // ── The arrival state: Noisy Source active, five panels unrendered ───────
-  await expect(page.locator('#panel-source')).toBeVisible();
-  await expect(page.getByRole('tab', { name: 'Noisy Source' })).toHaveAttribute('aria-selected', 'true');
-  for (const id of ['enroll', 'reliability', 'cost', 'reuse', 'context']) {
+  // ── The arrival state: the GUIDED path, with Explore not yet rendered ────
+  // The default experience is five scenes with one primary action on screen at
+  // a time. Explore holds the six-panel lab and starts hidden; its panels are
+  // lazily rendered, so a tab that has never been opened is a panel that is not
+  // even in the DOM. Asserted, because "empty" is this lab's tell that a
+  // renderer threw (see `watchPageErrors`).
+  await expect(page.locator('#guided')).toBeVisible();
+  await expect(page.locator('#explore')).toBeHidden();
+  await expect(page.locator('#mode-guided')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#mode-explore')).toHaveAttribute('aria-pressed', 'false');
+  for (const id of ['source', 'enroll', 'reliability', 'cost', 'reuse', 'context']) {
     await expect(page.locator(`#panel-${id}`)).toBeHidden();
     await expect(page.locator(`#panel-${id}`)).toBeEmpty();
   }
 
-  // The arrival panel finishes asynchronously — two power-up readings and two
-  // SHA-256 digests. Wait on the real content, never on a timeout.
-  await expect(page.locator('#panel-source [data-grid="reading-1"]')).toBeVisible();
-  await expect(page.locator('#panel-source [data-grid="reading-2"]')).toBeVisible();
-  await expect(page.locator('#panel-source [data-verdict="hash-fails"]')).toBeVisible();
-  await expect(page.locator('#panel-source [data-claim="sha-reading-1"]')).not.toBeEmpty();
+  // Exactly ONE primary action on the arrival scene. The whole point of the
+  // guided path is that there is never a choice of equally-weighted buttons.
+  await expect(page.locator('#guided .btn-primary')).toHaveCount(1);
+  await expect(page.locator('#guided-read')).toBeVisible();
+  await expect(page.locator('.rail .rail-btn')).toHaveCount(5);
+  await expect(page.locator('[data-scene="1"]')).toBeVisible();
+
+  // The scenario bar names the shared state every exhibit reads.
+  await expect(page.locator('.scenario-bar')).toBeVisible();
+  await expect(page.locator('[data-claim="scenario-name"]')).toHaveText('Healthy source');
+
+  // The arrival panel finishes asynchronously — the store enrols through
+  // WebCrypto HKDF before the pipeline scene has anything to draw. Wait on the
+  // real content, never on a timeout.
+  await expect(page.locator('[data-claim="scenario-residual"]')).not.toBeEmpty();
 
   // ── Disclosures ship shut ───────────────────────────────────────────────
   await expect(page.locator('#app details[open]')).toHaveCount(0);
@@ -725,7 +749,7 @@ async function openTab(page: Page, name: string, panelId: string): Promise<void>
 export async function driveAllStates(page: Page, theme: string): Promise<void> {
   const scanAt = (s: string): Promise<void> => scan(page, `${theme} / ${s}`);
 
-  await scanAt('arrival: Noisy Source with two readings and two digests, five panels unrendered');
+  await scanAt('arrival: the guided path at scene 1, Explore unrendered');
 
   // ── The shared skip link, focused ───────────────────────────────────────
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
@@ -733,25 +757,91 @@ export async function driveAllStates(page: Page, theme: string): Promise<void> {
   await expect(page.locator('a.cl-skip-link')).toBeFocused();
   await scanAt('the shared skip link focused, slid in from top:-3rem');
 
-  // ── Noisy Source ────────────────────────────────────────────────────────
+  // ── The simulated-source disclosure, opened the way a reader opens it ───
+  await page.locator('.model-banner-more > summary').click();
+  await expect(page.locator('.model-banner-more[open]')).toHaveCount(1);
+  await scanAt('the what-is-modelled disclosure open');
+  await page.locator('.model-banner-more > summary').click();
+
+  // ── The guided path, scene by scene ─────────────────────────────────────
+  await page.locator('#guided-read').click();
+  await expect(page.locator('[data-verdict="guided-drift"]')).toBeVisible();
+  await scanAt('Guided 1: two power-up readings and the drift verdict, button still hovered');
+
+  await page.locator('#scene-next').click();
+  await expect(page.locator('[data-scene="2"]')).toBeVisible();
+  await page.locator('#guided-hash').click();
+  await expect(page.locator('[data-verdict="guided-hash"]')).toBeVisible();
+  await scanAt('Guided 2: both digests compared and found different');
+
+  await page.locator('#scene-next').click();
+  await expect(page.locator('[data-scene="3"]')).toBeVisible();
+  await expect(page.locator('#guided-step-back')).toBeDisabled();
+  await scanAt('Guided 3: the pipeline stage at step 0, Back disabled');
+
+  // Every frame of the single stage, because each paints a different grid tone
+  // and the last one paints the key comparison.
+  for (let i = 1; i <= 6; i++) {
+    await page.locator('#guided-step-next').click();
+    await expect(page.locator('[data-claim="guided-pipeline-step"]')).toHaveText(`${i} / 6`);
+    if (i < 6) await scanAt(`Guided 3: pipeline step ${i}`);
+  }
+  await expect(page.locator('[data-verdict="guided-reproduce"]')).toBeVisible();
+  await scanAt('Guided 3: the key comparison and the reproduce verdict');
+
+  await page.locator('#scene-next').click();
+  await expect(page.locator('[data-scene="4"]')).toBeVisible();
+  await scanAt('Guided 4: before the break');
+
+  // The failure branch. Reachable only by deliberately asking for more drift
+  // than the code can repair, and never otherwise scanned.
+  await page.locator('#guided-break').click();
+  await expect(page.locator('[data-verdict="guided-broken"]')).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator('[data-claim="scenario-name"]')).toHaveText('Too noisy');
+  await scanAt('Guided 4: pushed past the radius — the failure verdict and the noisy scenario bar');
+
+  await page.locator('[data-scene="4"] details.disclose > summary').click();
+  await expect(page.locator('[data-scene="4"] details[open]')).toHaveCount(1);
+  await scanAt('Guided 4: the boundary disclosure open');
+
+  await page.locator('#scene-next').click();
+  await expect(page.locator('[data-scene="5"]')).toBeVisible();
+  await scanAt('Guided 5: before the weak source');
+
+  // The punchline state: every construction check green AND the key recovered.
+  await page.locator('#guided-weak').click();
+  await expect(page.locator('[data-verdict="guided-verdict"]')).toBeVisible({ timeout: 90_000 });
+  await expect(page.locator('[data-claim="scenario-flag"]')).toBeVisible();
+  await scanAt('Guided 5: the device succeeded and the attacker did too — the weak scenario bar');
+
+  await page.locator('[data-scene="5"] details.disclose > summary').click();
+  await expect(page.locator('[data-scene="5"] details[open]')).toHaveCount(1);
+  await scanAt('Guided 5: the arithmetic disclosure open');
+
+  // Jump back through the rail, which is the only way to re-reach a scene.
+  await page.locator('#rail-1').click();
+  await expect(page.locator('[data-scene="1"]')).toBeVisible();
+  await scanAt('Guided: stepped back to scene 1 through the rail');
+
+  // ── Explore mode ────────────────────────────────────────────────────────
+  await page.locator('#mode-explore').click();
+  await expect(page.locator('#explore')).toBeVisible();
+  await expect(page.locator('#guided')).toBeHidden();
+  await expect(page.locator('#panel-source')).not.toBeEmpty();
+  await scanAt('Explore: the six-panel lab, Noisy Source active');
+
   await page.locator('#sample-again').click();
   await expect(page.locator('#panel-source [data-verdict="readings-differ"]')).toBeVisible();
-  await scanAt('Source: a fresh pair of power-up readings, still hovered');
-
   await page.locator('#panel-source details.disclose > summary').first().click();
   await expect(page.locator('#panel-source details[open]')).toHaveCount(1);
-  await scanAt('Source: the majority-vote disclosure open');
-  await page.locator('#panel-source details.disclose > summary').first().click();
+  await scanAt('Explore Source: a fresh pair of readings and the majority-vote disclosure open');
 
-  // ── Enrol & Reproduce: the stepper, end to end ──────────────────────────
+  // ── Enrol & Reproduce ───────────────────────────────────────────────────
   await openTab(page, 'Enrol & Reproduce', '#panel-enroll');
   await expect(page.locator('#panel-enroll [data-claim="enroll-step"]')).toHaveText('Step 0 / 6');
   await expect(page.locator('#step-back')).toBeDisabled();
-  await expect(page.locator('#panel-enroll [data-verdict="reproduce"]')).toBeVisible();
-  await scanAt('Enrol: step 0 — Back disabled, the three-column split, the reproduce verdict');
+  await scanAt('Explore Enrol: step 0 — the three-column split and the reproduce verdict');
 
-  // Pin the success branch before stepping; the failure branch is scanned
-  // separately below, by pushing the bit-error rate past the radius.
   await enrolUntilReproduced(page);
   for (let i = 1; i <= 6; i++) {
     await page.locator('#step-next').click();
@@ -759,125 +849,110 @@ export async function driveAllStates(page: Page, theme: string): Promise<void> {
   }
   await expect(page.locator('#panel-enroll .stage')).toHaveCount(7);
   await expect(page.locator('#step-next')).toBeDisabled();
-  await expect(page.locator('#panel-enroll [data-verdict="key-match"]')).toBeVisible();
-  await scanAt('Enrol: stepped to the end — six stages, the key comparison, Next disabled');
+  await scanAt('Explore Enrol: stepped to the end — seven stages, Next disabled');
 
   await page.locator('#panel-enroll details.disclose > summary').first().click();
-  await expect(page.locator('#panel-enroll details[open]')).toHaveCount(1);
   await expect(page.locator('#panel-enroll [data-verdict="syndrome-equivalence"]')).toBeVisible();
-  await scanAt('Enrol: the syndrome-equivalence disclosure open');
+  await scanAt('Explore Enrol: the syndrome-equivalence disclosure open');
 
   await page.locator('#panel-enroll details.disclose > summary').last().click();
   await expect(page.locator('#panel-enroll details[open]')).toHaveCount(2);
-  await scanAt('Enrol: the failure-code table open');
+  await scanAt('Explore Enrol: the failure-code table open');
 
-  // Push the bit-error rate well past the code's radius. This is the only route
-  // to the decoder's failure verdict and the three failure stages behind it.
   await page.locator('#ber-slider').fill('0.3');
   await expect(page.locator('#panel-enroll [data-verdict="reproduce"]')).toHaveAttribute(
     'data-result',
     /fail|alarm/
   );
-  await scanAt('Enrol: bit-error rate past the radius — the decoder fails and says which code');
+  await scanAt('Explore Enrol: bit-error rate past the radius — the decoder fails and names its code');
 
-  await page.locator('#ber-slider').fill('0.02');
-  await expect(page.locator('#panel-enroll [data-verdict="reproduce"]')).toHaveAttribute('data-result', 'pass');
-
-  // The smallest code, where mis-correction is reachable at all.
+  await page.locator('#ber-slider').fill('0.04');
   await page.locator('#code-select').selectOption('bch-15-7');
   await expect(page.locator('#panel-enroll [data-claim="code-params"]')).toContainText('BCH(15, 7)');
-  await scanAt('Enrol: the smallest code selected, re-enrolled');
-
-  await page.locator('#enrol-again').click();
-  await expect(page.locator('#panel-enroll [data-verdict="reproduce"]')).toBeVisible();
-  await scanAt('Enrol: enrolled again on a fresh reading, button still hovered');
-
+  await scanAt('Explore Enrol: the smallest code selected');
   await page.locator('#code-select').selectOption('bch-127-64');
-  await expect(page.locator('#panel-enroll [data-claim="code-params"]')).toContainText('BCH(127, 64)');
 
   // ── Measured Reliability, including the worker sweep ────────────────────
   await openTab(page, 'Measured Reliability', '#panel-reliability');
   await expect(page.locator('#panel-reliability [data-chart="reliability-prediction"]')).toBeVisible();
-  await scanAt('Reliability: the prediction alone, before any measurement');
+  await scanAt('Explore Reliability: the prediction alone, before any measurement');
 
   await page.locator('#trials-select').selectOption('200');
   await page.locator('#run-reliability').click();
   await expect(page.locator('#panel-reliability [data-table="reliability"]')).toBeVisible({ timeout: 120_000 });
-  await expect(page.locator('#panel-reliability [data-verdict="reliability-agreement"]')).toBeVisible();
-  await scanAt('Reliability: the sweep finished — chart, legend, and the wide data table');
+  await scanAt('Explore Reliability: the sweep finished — chart, radius marker, legend, wide table');
 
   await page.locator('#panel-reliability details.disclose > summary').first().click();
   await expect(page.locator('#panel-reliability details[open]')).toHaveCount(1);
-  await scanAt('Reliability: the mis-correction disclosure open');
+  await scanAt('Explore Reliability: the mis-correction disclosure open');
 
-  // The table is the page's widest element and its only scroll region.
   await page.locator('#panel-reliability .table-wrap').first().focus();
-  await scanAt('Reliability: the data table focused as a scroll region');
+  await scanAt('Explore Reliability: the data table focused as a scroll region');
 
   // ── What the Helper Costs ───────────────────────────────────────────────
   await openTab(page, 'What the Helper Costs', '#panel-cost');
   await expect(page.locator('#panel-cost [data-claim="entropy-bar"]')).toBeVisible();
+  await scanAt('Explore Cost: the entropy bar on whatever scenario is loaded');
+
+  await page.locator('#preset-healthy').click();
   await expect(page.locator('#panel-cost [data-verdict="residual-state"]')).toHaveAttribute('data-result', 'pass');
-  await scanAt('Cost: a fair-coin source — the residual bar positive, the guarantee real');
+  await scanAt('Explore Cost: the healthy preset — a positive residual and a real guarantee');
 
   await page.locator('#run-attack').click();
   await expect(page.locator('#panel-cost [data-verdict="attack"]')).toBeVisible();
-  await scanAt('Cost: the attack run against an unbiased source and losing');
+  await scanAt('Explore Cost: the attack run against an unbiased source and losing');
 
-  // The weak-source fixture: the negative claim's evidence state. Every check
-  // the construction performs passes AND the key is already recovered.
   await page.locator('#weak-fixture').click();
-  await expect(page.locator('#panel-cost [data-verdict="weak-source-headline"]')).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator('#panel-cost [data-verdict="weak-source-headline"]')).toBeVisible({ timeout: 90_000 });
   await expect(page.locator('#panel-cost [data-verdict="residual-state"]')).toHaveAttribute('data-result', 'alarm');
   await expect(page.locator('#panel-cost [data-negative-claim]')).toBeVisible();
-  await scanAt('Cost: the weak-source fixture — reproduced AND recovered, the deficit bar below zero');
+  await scanAt('Explore Cost: the weak source — reproduced AND recovered, the deficit bar below zero');
 
   await page.locator('#panel-cost details.disclose > summary').first().click();
   await expect(page.locator('#panel-cost details[open]')).toHaveCount(1);
-  await scanAt('Cost: the formulas disclosure open');
+  await scanAt('Explore Cost: the formulas disclosure open');
   await page.locator('#panel-cost details.disclose > summary').first().click();
 
   await page.locator('#run-attack-sweep').click();
   await expect(page.locator('#panel-cost [data-table="attack"]')).toBeVisible({ timeout: 120_000 });
-  await scanAt('Cost: the bias sweep finished — the second chart and its table');
+  await scanAt('Explore Cost: the bias sweep finished — the second chart and its table');
 
   await page.locator('#skew-slider').fill('0.75');
-  await expect(page.locator('#panel-cost [data-verdict="residual-state"]')).toHaveAttribute('data-result', /warn|pass|alarm/);
-  await scanAt('Cost: the skew slider mid-range — a thin residual');
-
-  await page.locator('#skew-slider').fill('0.5');
+  await scanAt('Explore Cost: the skew slider mid-range — a thin residual');
+  await page.locator('#preset-healthy').click();
 
   // ── Enrolling Twice ─────────────────────────────────────────────────────
   await openTab(page, 'Enrolling Twice', '#panel-reuse');
   await expect(page.locator('#panel-reuse [data-verdict="reuse-bits-learned"]')).toBeVisible();
-  await expect(page.locator('#panel-reuse [data-claim="bits-learned"]')).toHaveText('0');
-  await scanAt('Reuse: two helpers for the identical reading — the XOR is a codeword');
+  await scanAt('Explore Reuse: two helpers for the identical reading — the XOR is a codeword');
 
   await page.locator('#mode-noisy').click();
   await expect(page.locator('#mode-noisy')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('#panel-reuse [data-verdict="reuse-xor"]')).toBeVisible();
-  await scanAt('Reuse: a noisy re-read — the XOR exposes the flipped cells');
+  await scanAt('Explore Reuse: a noisy re-read — the XOR exposes the flipped cells');
 
   await page.locator('#con-broken').click();
-  await expect(page.locator('#con-broken')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('#panel-reuse [data-verdict="broken-construction"]')).toBeVisible();
-  await scanAt('Reuse: the broken construction — the alarm and the narrowed candidate count');
+  await scanAt('Explore Reuse: the broken construction — the alarm and the narrowed count');
 
   await page.locator('#panel-reuse details.disclose > summary').first().click();
   await expect(page.locator('#panel-reuse details[open]')).toHaveCount(1);
-  await scanAt('Reuse: the reusability disclosure open');
-
+  await scanAt('Explore Reuse: the reusability disclosure open');
   await page.locator('#con-correct').click();
   await page.locator('#mode-exact').click();
 
   // ── Why It Matters ──────────────────────────────────────────────────────
   await openTab(page, 'Why It Matters', '#panel-context');
   await expect(page.locator('#panel-context .honesty-list li')).toHaveCount(6);
-  await scanAt('Context: the honesty list and the related demos');
+  await scanAt('Explore Context: the honesty list and the related demos');
 
   await page.locator('#panel-context details.disclose > summary').first().click();
   await expect(page.locator('#panel-context details[open]')).toHaveCount(1);
-  await scanAt('Context: the references disclosure open');
+  await scanAt('Explore Context: the references disclosure open');
+
+  // ── Reset, which must restore the shipped defaults everywhere ───────────
+  await page.locator('#scenario-reset').click();
+  await expect(page.locator('[data-claim="scenario-name"]')).toHaveText('Healthy source');
+  await scanAt('after Reset: the scenario bar back to the shipped defaults');
 
   // ── Hover, which persists after a click ─────────────────────────────────
   await page.getByRole('tab', { name: 'Noisy Source', exact: true }).hover();
@@ -886,18 +961,26 @@ export async function driveAllStates(page: Page, theme: string): Promise<void> {
   await page.locator('.cl-topbar .cl-btn').first().hover();
   await scanAt('a shared top bar control hovered');
 
-  await openTab(page, 'Enrol & Reproduce', '#panel-enroll');
-  await page.locator('#enrol-again').hover();
-  await scanAt('a primary button hovered');
+  await page.locator('#mode-guided').click();
+  await expect(page.locator('#guided')).toBeVisible();
+  // Reset also rewinds the tour -- deliberately, because scenes 4 and 5 APPLY
+  // scenarios, and leaving scene 5's result on screen beside a bar that says
+  // "Healthy source" is exactly the stale shared state the bar exists to stop.
+  // So the rail is back to step 1 only, and the later steps are disabled.
+  await expect(page.locator('[data-scene="1"]')).toBeVisible();
+  await expect(page.locator('#rail-3')).toBeDisabled();
+  await scanAt('after Reset: the guided path rewound, later rail steps disabled');
+
+  await page.locator('#guided-read').hover();
+  await scanAt('a guided primary button hovered');
 
   // ── Focus rings on the controls that take them ──────────────────────────
-  await page.locator('#ber-slider').focus();
-  await expect(page.locator('#ber-slider')).toBeFocused();
-  await scanAt('the range slider focused, showing its focus-visible outline');
+  await page.locator('#rail-1').focus();
+  await scanAt('a rail step focused');
 
-  await page.locator('#code-select').focus();
-  await scanAt('the select focused');
+  await page.locator('#scenario-reset').focus();
+  await scanAt('the Reset control focused');
 
-  await page.getByRole('tab', { name: 'Enrol & Reproduce', exact: true }).focus();
-  await scanAt('the active tab focused');
+  await page.locator('#mode-explore').focus();
+  await scanAt('the mode switch focused');
 }

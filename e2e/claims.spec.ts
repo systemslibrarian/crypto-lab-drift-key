@@ -35,16 +35,69 @@ import { expect, type Locator, type Page, test } from '@playwright/test';
 
 const CODE_LABEL = /BCH\((\d+), (\d+)\), t = (\d+)/;
 
+/**
+ * Arrive, and switch to Explore.
+ *
+ * The default experience is the guided path; the six panels these tests drive
+ * are Explore mode. `bootGuided` is the arrival state for the tests that are
+ * about the guided path itself.
+ */
 async function boot(page: Page): Promise<void> {
+  await bootGuided(page);
+  await page.locator('#mode-explore').click();
+  await expect(page.locator('#explore')).toBeVisible();
+  await expect(page.locator('#panel-source [data-verdict="hash-fails"]')).toBeVisible();
+}
+
+async function bootGuided(page: Page): Promise<void> {
   page.setDefaultTimeout(20_000);
   await page.goto('.');
-  await expect(page.locator('#panel-source [data-verdict="hash-fails"]')).toBeVisible();
+  await expect(page.locator('#guided-read')).toBeVisible();
+  await expect(page.locator('[data-claim="scenario-residual"]')).not.toBeEmpty();
 }
 
 async function openTab(page: Page, name: string, panelId: string): Promise<void> {
   await page.getByRole('tab', { name, exact: true }).click();
   await expect(page.locator(panelId)).toBeVisible();
   await expect(page.locator(panelId)).not.toBeEmpty();
+}
+
+/** Is this element inside the viewport right now? */
+async function inViewport(page: Page, selector: string): Promise<boolean> {
+  return page.locator(selector).evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return r.top < window.innerHeight && r.bottom > 0 && r.left < window.innerWidth && r.right > 0;
+  });
+}
+
+/**
+ * Walk the guided path to the end, returning how many PRIMARY ACTIONS it took.
+ *
+ * `beforeEach` runs at the top of each scene, before its action, so a test can
+ * inspect the scene as a visitor first meets it without duplicating the walk.
+ */
+async function walkGuided(
+  page: Page,
+  beforeEach?: (scene: number) => Promise<void>,
+): Promise<number> {
+  const scenes: { act: () => Promise<void>; settled: string }[] = [
+    { act: async () => { await page.locator('#guided-read').click(); }, settled: '[data-verdict="guided-drift"]' },
+    { act: async () => { await page.locator('#guided-hash').click(); }, settled: '[data-verdict="guided-hash"]' },
+    { act: async () => { for (let i = 0; i < 6; i++) await page.locator('#guided-step-next').click(); }, settled: '[data-verdict="guided-reproduce"]' },
+    { act: async () => { await page.locator('#guided-break').click(); }, settled: '[data-verdict="guided-broken"]' },
+    { act: async () => { await page.locator('#guided-weak').click(); }, settled: '[data-verdict="guided-verdict"]' },
+  ];
+
+  let actions = 0;
+  for (const [i, s] of scenes.entries()) {
+    await expect(page.locator(`[data-scene="${i + 1}"]`)).toBeVisible();
+    await beforeEach?.(i + 1);
+    await s.act();
+    actions++;
+    await expect(page.locator(s.settled)).toBeVisible({ timeout: 90_000 });
+    if (i < scenes.length - 1) await page.locator('#scene-next').click();
+  }
+  return actions;
 }
 
 /**
@@ -566,9 +619,16 @@ test.describe('the page tells the truth about itself', () => {
     await boot(page);
     const banner = page.locator('.model-banner');
     await expect(banner).toBeVisible();
-    await expect(banner).toContainText('There is no physical device in this page');
+    await expect(banner).toContainText('No physical device here');
     await expect(banner).toContainText('Not production crypto');
-    await expect(banner.locator('button, a, input, [role="button"], [aria-label*="ismiss"], [aria-label*="lose"]')).toHaveCount(0);
+    // A `<summary>` opens detail; it cannot remove the banner. The check names
+    // the shapes that COULD dismiss it rather than counting every element.
+    await expect(
+      banner.locator('button, a, input, [role="button"], [aria-label*="ismiss"], [aria-label*="lose"], [aria-label*="ide"]'),
+    ).toHaveCount(0);
+    // The headline sentence sits OUTSIDE the disclosure, so closing it changes
+    // nothing about whether the claim is on screen.
+    await expect(banner.locator('> .model-banner-body > p')).toContainText('No physical device here');
 
     // Still there after driving the lab, not only at first paint.
     await openTab(page, 'What the Helper Costs', '#panel-cost');
@@ -641,7 +701,7 @@ test.describe('§4.1d the negative claim', () => {
     //    performs a check is visited in this same state.
     await expectVerdict(page, 'weak-source-headline', {
       result: 'alarm',
-      contains: 'KEY REPRODUCED — AND RECOVERED FROM PUBLIC DATA',
+      contains: 'The device succeeded. The attacker did too.',
     });
     await expectVerdict(page, 'attack', { result: 'alarm', contains: 'THE ATTACKER HAS THE KEY' });
 
@@ -683,5 +743,172 @@ test.describe('§4.1d the negative claim', () => {
     // state rather than leaving the reader to notice nothing is there.
     expect(await readClaim(page, 'weak-source-code')).toBe('NO_CODE_FOR_WEAK_SOURCE');
     await expect(claimBlock.locator('.row-absent')).toContainText('there is none');
+  });
+});
+
+/**
+ * The experience itself, asserted.
+ *
+ * Correctness tests cannot see the defect these cover. Before the guided path
+ * existed, every claim in this file passed while the most important control in
+ * the lab rendered its result 1003px below itself in a 900px viewport with the
+ * scroll position unchanged — a visitor could press it and watch nothing
+ * happen, and no test in the suite objected. So the reachability of a result is
+ * now a claim like any other, with the measurements recorded in the assertions.
+ */
+test.describe('the experience', () => {
+  test('the first action is reachable without hunting for it', async ({ page }) => {
+    // Desktop: visible with no scrolling at all.
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await bootGuided(page);
+    expect(await inViewport(page, '#guided-read')).toBe(true);
+
+    // Phone: within 1.25 viewports. The fleet-standard hero is ~400px here and
+    // the simulated-source banner is not optional, so this is the budget that
+    // remains once those are paid for.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await bootGuided(page);
+    const box = await page.locator('#guided-read').boundingBox();
+    expect(box, 'the first action is not on the page at all').toBeTruthy();
+    expect(box!.y / 844).toBeLessThan(1.25);
+  });
+
+  test('guided mode never offers more than one primary action at a time', async ({ page }) => {
+    await bootGuided(page);
+    const seen: number[] = [];
+    await walkGuided(page, async (scene) => {
+      // As a visitor first meets each scene: exactly one thing to press.
+      // The Back control on the pipeline scene is a ghost button, not a primary,
+      // so it does not compete for attention with the step that moves forward.
+      const primaries = await page.locator('#guided .btn-primary').count();
+      seen.push(primaries);
+      expect(primaries, `scene ${scene} offers ${primaries} primary buttons`).toBe(1);
+    });
+    expect(seen).toEqual([1, 1, 1, 1, 1]);
+  });
+
+  test('every guided action leaves its result in the viewport', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await bootGuided(page);
+
+    const checkpoints: { after: string; run: () => Promise<void> }[] = [
+      { after: 'read the device twice', run: async () => { await page.locator('#guided-read').click(); await expect(page.locator('[data-verdict="guided-drift"]')).toBeVisible(); } },
+      { after: 'hash both readings', run: async () => { await page.locator('#guided-hash').click(); await expect(page.locator('[data-verdict="guided-hash"]')).toBeVisible(); } },
+      { after: 'run the pipeline', run: async () => { for (let i = 0; i < 6; i++) await page.locator('#guided-step-next').click(); await expect(page.locator('[data-verdict="guided-reproduce"]')).toBeVisible(); } },
+      { after: 'push past the radius', run: async () => { await page.locator('#guided-break').click(); await expect(page.locator('[data-verdict="guided-broken"]')).toBeVisible({ timeout: 60_000 }); } },
+      { after: 'break secrecy', run: async () => { await page.locator('#guided-weak').click(); await expect(page.locator('[data-verdict="guided-verdict"]')).toBeVisible({ timeout: 90_000 }); } },
+    ];
+
+    for (const [i, cp] of checkpoints.entries()) {
+      await cp.run();
+      expect(
+        await inViewport(page, '#guided [data-result-anchor]'),
+        `the result of "${cp.after}" is off screen`,
+      ).toBe(true);
+      if (i < checkpoints.length - 1) await page.locator('#scene-next').click();
+    }
+  });
+
+  test('the punchline lands in five primary actions, and says both things at once', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await bootGuided(page);
+    const actions = await walkGuided(page);
+    expect(actions, 'the guided path should reach its result in five primary actions').toBe(5);
+
+    await expectVerdict(page, 'guided-verdict', {
+      result: 'alarm',
+      contains: 'The device succeeded. The attacker did too.',
+    });
+    // Both halves, rendered as separate verdicts in the same state: the
+    // construction's own check passes and the attacker's does not.
+    await expectVerdict(page, 'guided-device', { result: 'pass', contains: 'key reproduced', check: 'construction' });
+    await expectVerdict(page, 'guided-attacker', { result: 'alarm', contains: 'same key, from public data' });
+    expect(await inViewport(page, '[data-verdict="guided-verdict"]')).toBe(true);
+
+    // And the arithmetic behind it is on the same screen, not asserted at it.
+    const m = parseFloat(await readClaim(page, 'guided-m'));
+    const loss = parseFloat(await readClaim(page, 'guided-loss'));
+    const residual = parseFloat(await readClaim(page, 'guided-residual'));
+    expect(Math.abs(residual - (m - loss))).toBeLessThan(0.11);
+    expect(residual).toBeLessThan(0);
+  });
+
+  test('colour tracks system integrity, not the raw return value', async ({ page }) => {
+    // Template §1: a forged-but-accepted result reads as ALARM, not as green
+    // success. Two keys matching is the whole point when the DEVICE reproduces
+    // its own key, and it is the breach when the second key belongs to an
+    // attacker holding nothing but public data. The same comparison component
+    // renders both, so this asserts it does not paint them the same way.
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await bootGuided(page);
+    await walkGuided(page);
+
+    // Each scene replaces the card, so the two comparisons are never on screen
+    // together; the rail is how a visitor gets back to an earlier one.
+    const stolenKeys = await readVerdict(page, 'guided-steal');
+    await page.locator('#rail-3').click();
+    await expect(page.locator('[data-scene="3"]')).toBeVisible();
+    const deviceKeys = await readVerdict(page, 'guided-key');
+    expect(deviceKeys.text, 'the device did reproduce its key').toContain('THE SAME KEY');
+    expect(stolenKeys.text, 'the attacker did get the same key').toContain('THE SAME KEY');
+
+    // Identical words, opposite meaning, and therefore opposite tone.
+    expect(deviceKeys.result).toBe('pass');
+    expect(stolenKeys.result).toBe('alarm');
+    await expect(page.locator('[data-verdict="guided-key"]')).toHaveClass(/verdict-pass\b/);
+    await page.locator('#rail-5').click();
+    await expect(page.locator('[data-verdict="guided-steal"]')).toHaveClass(/verdict-alarm\b/);
+    await expect(page.locator('[data-verdict="guided-steal"]')).not.toHaveClass(/verdict-pass\b/);
+
+    // And a breach comparison is not a check the construction performs, so it
+    // must not be swept up by the negative claim's "everything green" pass.
+    expect(stolenKeys.check).toBe('measurement');
+    expect(deviceKeys.check).toBe('construction');
+  });
+
+  test('the scenario bar names the shared state, and Reset restores it', async ({ page }) => {
+    await bootGuided(page);
+    expect(await readClaim(page, 'scenario-name')).toBe('Healthy source');
+    await expect(page.locator('[data-claim="scenario-flag"]')).toHaveCount(0);
+    const healthyResidual = parseFloat(await readClaim(page, 'scenario-residual'));
+    expect(healthyResidual).toBeGreaterThan(0);
+
+    await walkGuided(page);
+
+    // The weak scenario is named, flagged, and its residual is on the bar --
+    // so a visitor who now wanders into another exhibit is told what device
+    // they are reading. That state used to follow them silently.
+    expect(await readClaim(page, 'scenario-name')).toBe('Weak source');
+    await expect(page.locator('[data-claim="scenario-flag"]')).toBeVisible();
+    expect(parseFloat(await readClaim(page, 'scenario-residual'))).toBeLessThan(0);
+
+    // It follows them into Explore, still named.
+    await page.locator('#mode-explore').click();
+    await openTab(page, 'What the Helper Costs', '#panel-cost');
+    expect(await readClaim(page, 'scenario-name')).toBe('Weak source');
+    expect(parseFloat(await readClaim(page, 'residual'))).toBeLessThan(0);
+
+    await page.locator('#scenario-reset').click();
+    await expect(page.locator('[data-claim="scenario-name"]')).toHaveText('Healthy source');
+    await expect(page.locator('[data-claim="scenario-flag"]')).toHaveCount(0);
+    expect(parseFloat(await readClaim(page, 'scenario-residual'))).toBeGreaterThan(0);
+    expect(parseFloat(await readClaim(page, 'residual'))).toBeGreaterThan(0);
+  });
+
+  test('the weak-source control says what it does, not what the test suite calls it', async ({ page }) => {
+    await boot(page);
+    await openTab(page, 'What the Helper Costs', '#panel-cost');
+    const label = (await page.locator('#weak-fixture').textContent()) ?? '';
+    expect(label).toBe('Break secrecy without breaking reproduction');
+    expect(label.toLowerCase()).not.toContain('fixture');
+
+    // And its result arrives in the viewport rather than a thousand pixels down.
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.locator('#weak-fixture').click();
+    await expect(page.locator('[data-verdict="weak-source-headline"]')).toBeVisible({ timeout: 90_000 });
+    expect(
+      await inViewport(page, '[data-verdict="weak-source-headline"]'),
+      'the weak-source result is off screen after its own button was pressed',
+    ).toBe(true);
   });
 });

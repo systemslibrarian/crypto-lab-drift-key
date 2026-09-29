@@ -108,6 +108,17 @@ export function comparison(options: {
   rightFull?: string;
   passText: string;
   failText: string;
+  /**
+   * What EQUALITY means for the system, which is not always "good".
+   *
+   * Template §1: colour tracks system integrity, not the raw return value — a
+   * forged-but-accepted result reads as ALARM, not as green success. Two keys
+   * matching is the whole point when the device reproduces its own key, and it
+   * is the breach when the second key belongs to an attacker holding nothing
+   * but public data. Same comparison, opposite meaning, so the caller says
+   * which one this is.
+   */
+  equalityMeans?: 'integrity' | 'breach';
 }): HTMLElement {
   // Compare the FULL values where they exist. Comparing elided prefixes would
   // report two different words as identical, which is the one thing a
@@ -115,9 +126,12 @@ export function comparison(options: {
   const left = options.leftFull ?? options.leftValue;
   const right = options.rightFull ?? options.rightValue;
   const same = left === right;
+  const breach = options.equalityMeans === 'breach';
+  const tone = same ? (breach ? 'alarm' : 'pass') : breach ? 'pass' : 'fail';
+  const icon = tone === 'pass' ? '✓' : tone === 'alarm' ? '‼' : '✕';
   return h(
     'div',
-    { class: `compare compare-${same ? 'same' : 'differ'}` },
+    { class: `compare compare-${same ? 'same' : 'differ'}${breach && same ? ' compare-breach' : ''}` },
     h(
       'div',
       { class: 'compare-row' },
@@ -149,12 +163,16 @@ export function comparison(options: {
     h(
       'p',
       {
-        class: `verdict verdict-${same ? 'pass' : 'fail'}`,
+        class: `verdict verdict-${tone}`,
         'data-verdict': options.id,
-        'data-result': same ? 'pass' : 'fail',
-        'data-check': 'construction',
+        'data-result': tone,
+        // A breach comparison is not a check the construction performs -- it is
+        // this page holding two values side by side that the device never sees
+        // together -- so it must not count toward the negative claim's
+        // "every construction check is green" sweep.
+        'data-check': breach ? 'measurement' : 'construction',
       },
-      h('span', { class: 'verdict-icon', 'aria-hidden': 'true' }, same ? '✓' : '✕'),
+      h('span', { class: 'verdict-icon', 'aria-hidden': 'true' }, icon),
       h('strong', {}, same ? options.passText : options.failText),
     ),
   );

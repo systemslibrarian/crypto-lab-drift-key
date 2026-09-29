@@ -52,6 +52,8 @@ export interface ChartOptions {
   readonly yFormat?: (v: number) => string;
   readonly series: readonly ChartSeries[];
   readonly summary: string;
+  /** A labelled vertical rule — where the visitor currently is on the x axis. */
+  readonly marker?: { readonly x: number; readonly label: string };
 }
 
 export function chart(options: ChartOptions): HTMLElement {
@@ -112,6 +114,22 @@ export function chart(options: ChartOptions): HTMLElement {
   });
   yTitle.textContent = options.yLabel;
   svg.append(xTitle, yTitle);
+
+  if (options.marker && options.marker.x >= xMin && options.marker.x <= xMax) {
+    const mx = sx(options.marker.x);
+    svg.append(
+      svgEl('line', { x1: mx, y1: M.top, x2: mx, y2: M.top + plotH, class: 'chart-marker' }),
+    );
+    const tag = svgEl('text', {
+      x: mx,
+      y: M.top + 14,
+      class: 'chart-marker-label',
+      'text-anchor': mx > M.left + plotW * 0.75 ? 'end' : 'start',
+      dx: mx > M.left + plotW * 0.75 ? -6 : 6,
+    });
+    tag.textContent = options.marker.label;
+    svg.append(tag);
+  }
 
   for (const series of options.series) {
     if (series.points.length === 0) continue;

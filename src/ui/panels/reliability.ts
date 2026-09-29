@@ -91,7 +91,7 @@ export function renderReliabilityPanel(root: HTMLElement, store: Store): void {
     );
     return;
   }
-  renderResults(out, lastPoints, s.code.label, s.code.n, s.code.t);
+  renderResults(out, lastPoints, s.code.label, s.code.n, s.code.t, s.ber);
 }
 
 function predictionOnly(n: number, t: number, label: string): HTMLElement {
@@ -139,7 +139,7 @@ async function runSweep(root: HTMLElement, store: Store): Promise<void> {
     lastPoints = points;
     lastCodeId = s.codeId;
     clear(out);
-    renderResults(out, points, s.code.label, s.code.n, s.code.t);
+    renderResults(out, points, s.code.label, s.code.n, s.code.t, s.ber);
   } catch (error) {
     clear(out);
     out.append(verdict('reliability-error', 'fail', 'The sweep did not finish', { detail: String(error) }));
@@ -155,6 +155,7 @@ function renderResults(
   label: string,
   n: number,
   t: number,
+  ber: number,
 ): void {
   const inside = points.filter((p) => p.predicted >= p.lo && p.predicted <= p.hi).length;
   const worst = points.reduce((a, b) =>
@@ -206,6 +207,7 @@ function renderResults(
           points: points.map((p) => ({ x: p.ber, y: p.measured, lo: p.lo, hi: p.hi })),
         },
       ],
+      marker: { x: ber, label: `you are here: ${(ber * 100).toFixed(1)}%` },
       summary:
         `Measured key-failure rate for ${label} against the binomial prediction, ${totalTrials} reproductions in total. ` +
         points
@@ -216,6 +218,13 @@ function renderResults(
           .join('; ') +
         '.',
     }),
+    callout(
+      'info',
+      h('strong', {}, `This code repairs up to ${t} flipped cells in ${n}. `),
+      `At a bit-error rate of ${(ber * 100).toFixed(1)}% a re-read flips about ${(n * ber).toFixed(1)} ` +
+        'cells on average, which is where the vertical rule on the chart sits. The curve is the ' +
+        'chance that a particular re-read lands past the radius.',
+    ),
     verdict(
       'reliability-agreement',
       worstZ <= 4 ? 'pass' : 'warn',

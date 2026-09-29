@@ -140,6 +140,14 @@ body {
 @media (max-width: 640px) {
   .cl-hero { flex-direction: column; }
   .cl-hero-why { flex-basis: auto; width: 100%; }
+  /* `.cl-hero-main` is `flex: 1 1 22rem` for the desktop ROW layout, where 22rem
+     is a width. The moment this query flips the container to `column`, that
+     22rem becomes a hypothetical HEIGHT, and the title block is padded to 352px
+     on a 390px screen -- about 180px of dead space above everything the page
+     does. The fleet's standard block resets `flex-basis` on `.cl-hero-why` here
+     and not on `.cl-hero-main`; this is the same reset, for the same reason, and
+     it changes nothing about the desktop layout. */
+  .cl-hero-main { flex-basis: auto; }
 }
 
 /* ── The model banner (invariant I7: no dismiss control) ───────────────── */
@@ -432,7 +440,16 @@ summary:focus-visible,
 .bar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.8rem; margin-bottom: 0.6rem; }
 .bar-label { flex: 0 0 14rem; font-size: 0.8rem; color: var(--text-dim); }
 .bar-track { position: relative; flex: 1 1 10rem; min-width: min(100%, 8rem); height: 1.15rem; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); overflow: hidden; }
-.bar-fill { position: absolute; top: 0; bottom: 0; left: 0; }
+.bar-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  /* Tied to the skew slider the visitor is dragging, so m is SEEN to shrink
+     while n - k stays put and the residual crosses zero. Not decorative: there
+     is no idle state in which this moves. The reduced-motion block cancels it. */
+  transition: width 0.28s ease, left 0.28s ease;
+}
 .bar-entropy { background: var(--accent); }
 .bar-loss { background: repeating-linear-gradient(45deg, var(--public) 0 6px, color-mix(in srgb, var(--public) 55%, var(--surface-2)) 6px 12px); }
 .bar-residual { background: var(--good); }
@@ -482,6 +499,8 @@ summary:focus-visible,
 .chart-line.chart-predicted { stroke: var(--public); }
 .chart-dot.chart-measured { fill: var(--accent); stroke: var(--bg); stroke-width: 1; }
 .chart-bar.chart-measured { stroke: var(--accent); stroke-width: 2; }
+.chart-marker { stroke: var(--warn); stroke-width: 2; stroke-dasharray: 4 4; }
+.chart-marker-label { fill: var(--warn); font-size: 12px; font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; }
 .chart-legend { list-style: none; margin: 0.5rem 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.5rem 1.4rem; font-size: 0.82rem; color: var(--text-dim); }
 .chart-legend-item { display: flex; align-items: center; gap: 0.45rem; }
 .legend-mark { display: inline-block; width: 1.6rem; height: 0.7rem; }
@@ -524,3 +543,191 @@ summary:focus-visible,
     scroll-behavior: auto !important;
   }
 }
+
+/* ── The scenario bar ─────────────────────────────────────────────────────
+   The settings every exhibit is reading, on screen wherever they apply, so
+   shared state cannot follow a visitor between panels unannounced. */
+.scenario-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 0.55rem 0.9rem;
+  margin-bottom: 1rem;
+  font-size: 0.84rem;
+}
+.scenario-bar-weak {
+  border-color: color-mix(in srgb, var(--alarm) 55%, var(--border));
+  background: color-mix(in srgb, var(--alarm) 8%, var(--surface));
+}
+.scenario-name { font-weight: 700; color: var(--accent); letter-spacing: 0.02em; }
+.scenario-name-weak { color: var(--alarm); }
+.scenario-cell { display: inline-flex; align-items: baseline; gap: 0.35rem; }
+.scenario-label { font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.scenario-value { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; color: var(--text); }
+.scenario-flag {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--alarm);
+  border: 1px solid var(--alarm);
+  border-radius: 4px;
+  padding: 0.1rem 0.4rem;
+}
+.scenario-reset { margin-left: auto; padding: 0.35rem 0.8rem; min-height: 36px; font-size: 0.8rem; }
+
+/* ── The banner, compacted ────────────────────────────────────────────── */
+.model-banner-body { flex: 1 1 20rem; min-width: min(100%, 16rem); }
+.model-banner-body p { margin: 0; font-size: 0.93rem; color: var(--text-dim); }
+.model-banner-more { margin: 0.5rem 0 0; background: transparent; border-color: color-mix(in srgb, var(--warn) 30%, var(--border)); }
+.model-banner-more > summary { padding: 0.4rem 0.6rem; font-size: 0.83rem; }
+.model-banner-more .disclose-body { padding: 0 0.6rem 0.6rem; }
+
+/* ── Mode switch ──────────────────────────────────────────────────────── */
+.mode-switch { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 1rem; margin-bottom: 1.2rem; }
+.mode-note { margin: 0; font-size: 0.84rem; color: var(--text-muted); }
+
+/* ── The guided path ──────────────────────────────────────────────────── */
+.rail { display: flex; flex-wrap: wrap; gap: 0.35rem; list-style: none; margin: 0 0 1rem; padding: 0; counter-reset: none; }
+.rail-step { flex: 1 1 8rem; min-width: min(100%, 7rem); }
+.rail-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-align: left;
+  padding: 0.45rem 0.6rem;
+  min-height: 40px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.rail-btn:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.rail-btn:disabled { cursor: default; color: var(--text-muted); border-color: var(--border); background: var(--surface); }
+.rail-current .rail-btn { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.rail-num {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  font-size: 0.72rem;
+}
+.rail-title { overflow-wrap: anywhere; }
+
+.scene { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 1rem 1.1rem 1.1rem; }
+.scene-count { margin: 0; font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 0.75rem; letter-spacing: 0.06em; color: var(--text-muted); }
+.scene-title { margin: 0.2rem 0 0.7rem; font-size: clamp(1.15rem, 2.4vw, 1.5rem); line-height: 1.25; }
+.scene-q { font-size: 1.02rem; color: var(--text); max-width: 62ch; }
+.scene-action { display: flex; flex-wrap: wrap; gap: 0.6rem; margin: 0.9rem 0; }
+.scene-result { margin-top: 0.6rem; scroll-margin-block: 1rem; }
+.scene-result:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+.scene-hint { font-size: 0.88rem; color: var(--text-muted); }
+.scene-meaning {
+  margin: 0.8rem 0 0;
+  padding-left: 0.8rem;
+  border-left: 3px solid var(--accent);
+  font-size: 1rem;
+  color: var(--text);
+  max-width: 68ch;
+}
+.scene-next { margin-top: 1.1rem; padding-top: 0.9rem; border-top: 1px solid var(--border); }
+.two-up { display: flex; flex-wrap: wrap; gap: 0.7rem; }
+.two-up > * { flex: 1 1 18rem; min-width: min(100%, 16rem); margin: 0; }
+
+/* One stage that changes, rather than a column of cards that grows. */
+.stage-single { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); padding: 0.8rem 0.95rem; }
+.stage-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.6rem; margin-bottom: 0.4rem; }
+.stage-op {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+.stage-progress { margin-left: auto; font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 0.78rem; color: var(--text-muted); }
+.stage-caption { font-size: 0.92rem; color: var(--text-dim); max-width: 68ch; }
+
+/* ── Explore grouping ─────────────────────────────────────────────────── */
+.tab-group-label { margin: 0 0 0.4rem; font-size: 0.74rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+.tab-group-sep { display: inline-block; width: 1px; align-self: stretch; background: var(--border); margin: 0 0.3rem; }
+.tab-group-legend { margin: 0.5rem 0 0; font-size: 0.82rem; color: var(--text-muted); }
+
+
+/* ── Phone layout ─────────────────────────────────────────────────────────
+   The fleet-standard hero is ~570px at 390px wide and the simulated-source
+   banner is not optional, so most of the first screen is spoken for before the
+   lab begins. Everything BELOW those and above the first action is therefore
+   compacted rather than merely reflowed: the progress rail becomes numbered
+   pips with one title, the mode note drops, and the scenario bar and banner
+   tighten. Measured: the first action moved from 2.23 viewports to the figure
+   recorded in the README. */
+@media (max-width: 640px) {
+  .mode-note { display: none; }
+  .mode-switch { margin-bottom: 0.8rem; }
+
+  .rail { gap: 0.3rem; }
+  .rail-step { flex: 0 0 auto; min-width: 0; }
+  .rail-btn { padding: 0.3rem; min-height: 38px; min-width: 38px; justify-content: center; }
+  /* Only the step the visitor is on needs its name on a phone; the rest are
+     reachable pips with an accessible name that still carries the title. */
+  .rail-step:not(.rail-current) .rail-title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  /* The named step takes its own row and the remaining pips share the next, so
+     the rail is two tidy rows instead of a ragged wrap. */
+  .rail-current { flex: 1 1 100%; }
+  .rail-current .rail-btn { flex-wrap: wrap; }
+
+  .scenario-bar { gap: 0.3rem 0.7rem; padding: 0.45rem 0.7rem; font-size: 0.79rem; }
+  .scenario-reset { margin-left: 0; }
+
+  .model-banner { padding: 0.6rem 0.75rem; gap: 0.5rem; }
+  .model-banner p { font-size: 0.87rem; }
+  .model-banner-more > summary { font-size: 0.79rem; padding: 0.3rem 0.5rem; }
+
+  .scene { padding: 0.8rem 0.85rem 0.9rem; }
+  .scene-title { margin-bottom: 0.5rem; }
+  .scene-q { font-size: 0.96rem; }
+  .scene-action { margin: 0.7rem 0; }
+
+  .cl-hero { margin-bottom: 1rem; }
+  .cl-hero-desc { font-size: 0.95rem; }
+
+  /* The rail already says which step this is, so the sentence that repeats it
+     goes to assistive technology only rather than taking a line of the phone's
+     first screen. Visually hidden, not removed: it is still the thing a screen
+     reader hears before the heading. */
+  .scene-count {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .model-banner { margin-bottom: 0.8rem; }
+  .scenario-bar { margin-bottom: 0.7rem; }
+  .rail { margin-bottom: 0.7rem; }
+}
+
+.preset-row { gap: 0.4rem; }
+.result-anchor { display: block; height: 0; scroll-margin-block: 6rem; }
+.result-anchor:focus-visible { outline: none; }
+
+.compare-breach { border-color: color-mix(in srgb, var(--alarm) 45%, var(--border)); background: color-mix(in srgb, var(--alarm) 7%, var(--surface)); }

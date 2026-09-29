@@ -31,6 +31,7 @@ import {
   sketchLossBits,
 } from '../../model/stats';
 import { MAX_SKEW, MIN_SKEW } from '../../model/source';
+import { SCENARIOS } from '../scenario';
 import { bitGrid } from '../bitgrid';
 import { chart, dataTable } from '../chart';
 import {
@@ -53,6 +54,28 @@ import {
 } from '../dom';
 import { type Store } from '../state';
 import { runAttack as runAttackSweep } from '../worker-client';
+
+/**
+ * Move the visitor's attention to the result of what they just pressed.
+ *
+ * Measured on the version before this: the weak-source button sat at y=847 and
+ * its headline rendered at y=1850 in a 900px viewport, with the scroll position
+ * unchanged. A visitor could press the most important control in the lab and
+ * see nothing happen. Focus rather than a bare scroll, because focus also tells
+ * a screen reader where the answer went.
+ */
+function handOffToResult(root: HTMLElement): void {
+  // Synchronous on purpose. Every render in this lab rebuilds its DOM
+  // synchronously -- `renderGuided` before this is called, and the store's
+  // `notify()` before the promise it was awaited on resolves -- so the target
+  // already exists and waiting a frame only makes the moment the page moves
+  // depend on timing nobody controls. Focus rather than a bare scroll, because
+  // focus also tells a screen reader where the answer went.
+  const target = root.querySelector<HTMLElement>('[data-result-anchor]');
+  if (!target) return;
+  target.focus({ preventScroll: true });
+  target.scrollIntoView({ block: 'center', behavior: 'auto' });
+}
 
 /**
  * The negative claim. One sentence naming a security property this
@@ -106,6 +129,30 @@ export function renderCostPanel(root: HTMLElement, store: Store): void {
     ),
     h(
       'div',
+      { class: 'control-row preset-row', role: 'group', 'aria-label': 'Scenario presets' },
+      ...SCENARIOS.map((preset) =>
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'seg-btn',
+            id: `preset-${preset.id}`,
+            'aria-pressed': s.scenarioId === preset.id ? 'true' : 'false',
+            title: preset.blurb,
+            onclick: () => {
+              if (preset.id === 'weak') {
+                void store.applyScenario(preset).then(() => handOffToResult(root));
+              } else {
+                void store.applyScenario(preset);
+              }
+            },
+          },
+          preset.label,
+        ),
+      ),
+    ),
+    h(
+      'div',
       { class: 'control-row' },
       button('Run the attack on this enrolment', () => void store.runAttack(), {
         variant: 'primary',
@@ -118,7 +165,18 @@ export function renderCostPanel(root: HTMLElement, store: Store): void {
         },
         { id: 'run-attack-sweep' },
       ),
-      button('Weak-source fixture', () => void store.weakSourceFixture(), { id: 'weak-fixture' }),
+      button(
+        'Break secrecy without breaking reproduction',
+        () => {
+          const btn = root.querySelector<HTMLButtonElement>('#weak-fixture');
+          if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Enrolling on a weak source and attacking…';
+          }
+          void store.weakSourceFixture().then(() => handOffToResult(root));
+        },
+        { id: 'weak-fixture' },
+      ),
     ),
     entropyBar({ m, loss, residual, n: s.code.n, k: s.code.k, state }),
     h(
@@ -396,17 +454,20 @@ function renderAttack(out: HTMLElement, store: Store, acct: { m: number; loss: n
   );
 
   if (s.weakFixture) {
-    out.append(
-      verdict(
+    const headline = verdict(
         'weak-source-headline',
         attack.keyMatched && reproduced ? 'alarm' : 'warn',
         attack.keyMatched && reproduced
-          ? 'KEY REPRODUCED — AND RECOVERED FROM PUBLIC DATA'
-          : 'The fixture did not reach both outcomes at once',
+          ? 'The device succeeded. The attacker did too.'
+          : 'This run did not reach both outcomes at once',
         {
           detail: `residual bound ${fmt(acct.residual, 1)} bits; every check the construction performs passed`,
         },
-      ),
+    );
+    headline.setAttribute('data-result-anchor', '');
+    headline.setAttribute('tabindex', '-1');
+    out.append(
+      headline,
       callout(
         'danger',
         h('strong', {}, 'Both of those are true at the same time, and that is the point. '),

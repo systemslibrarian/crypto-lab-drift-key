@@ -23,10 +23,11 @@ import { bytesEqual } from '../crypto/kdf';
 import { distance } from '../crypto/bits';
 import { makePrng, type Prng, randomSeed } from '../model/prng';
 import { type DeviceModel, laterReading, makeDevice, powerUpReading } from '../model/source';
+import { DEFAULT_SCENARIO, identifyScenario, type Scenario, type ScenarioId } from './scenario';
 
 export const DEFAULT_CODE_ID = 'bch-127-64';
-export const DEFAULT_SKEW = 0.5;
-export const DEFAULT_BER = 0.04;
+export const DEFAULT_SKEW = DEFAULT_SCENARIO.skew;
+export const DEFAULT_BER = DEFAULT_SCENARIO.ber;
 
 export interface AttackOutcome {
   readonly result: AttackResult;
@@ -57,7 +58,9 @@ export interface LabState {
   enrollment: Enrollment | null;
   reproduction: Reproduction | null;
   attack: AttackOutcome | null;
-  /** True while the last enrolment came from the weak-source fixture button. */
+  /** Which named scenario the current settings are, or 'custom'. */
+  scenarioId: ScenarioId;
+  /** True while the last enrolment came from the weak-source scenario. */
   weakFixture: boolean;
 }
 
@@ -83,6 +86,7 @@ export class Store {
       enrollment: null,
       reproduction: null,
       attack: null,
+      scenarioId: DEFAULT_SCENARIO.id,
       weakFixture: false,
     };
   }
@@ -115,6 +119,7 @@ export class Store {
 
   private rebuildDevice(): void {
     const s = this.state;
+    s.scenarioId = identifyScenario(s.skew, s.ber);
     s.code = codeById(s.codeId);
     s.device = makeDevice(s.code.n, s.deviceSeed, s.skew);
     s.enrollment = null;
@@ -157,7 +162,40 @@ export class Store {
 
   async setBer(ber: number): Promise<void> {
     this.state.ber = ber;
+    this.state.scenarioId = identifyScenario(this.state.skew, ber);
     await this.reproduceNow();
+  }
+
+  /**
+   * Apply a named scenario. Everything a scenario touches is a parameter of the
+   * shared device, so this goes through the same path as moving the sliders by
+   * hand -- there is no second, hidden way to reach these states.
+   */
+  async applyScenario(scenario: Scenario): Promise<void> {
+    // The weak scenario goes through its own path because it has to reach a
+    // COMPOUND state -- reproduction succeeded AND the attack won -- and at this
+    // bias one guess wins about four times in five. A single attempt would leave
+    // the lab's headline result to a coin flip roughly one visit in five.
+    if (scenario.id === 'weak') {
+      await this.weakSourceFixture();
+      return;
+    }
+    this.state.skew = scenario.skew;
+    this.state.ber = scenario.ber;
+    this.rebuildDevice();
+    this.state.scenarioId = scenario.id;
+    await this.enrolNow(false);
+  }
+
+  /** Back to the shipped defaults, device included. */
+  async resetAll(): Promise<void> {
+    this.state.codeId = DEFAULT_CODE_ID;
+    this.state.skew = DEFAULT_SCENARIO.skew;
+    this.state.ber = DEFAULT_SCENARIO.ber;
+    this.state.deviceSeed = randomSeed();
+    this.rebuildDevice();
+    this.state.scenarioId = DEFAULT_SCENARIO.id;
+    await this.enrolNow();
   }
 
   /** Take a later reading of the same device and try to reproduce the key. */
@@ -215,6 +253,7 @@ export class Store {
     this.state.skew = 0.99;
     this.state.ber = 0.02;
     this.rebuildDevice();
+    this.state.scenarioId = 'weak';
     let watched = 0;
     for (let attempt = 1; attempt <= 40; attempt++) {
       watched = attempt;

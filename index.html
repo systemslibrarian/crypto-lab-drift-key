@@ -168,49 +168,89 @@
           <h1 class="cl-hero-title">Drift Key</h1>
           <p class="cl-hero-sub">Fuzzy extractor &middot; code-offset sketch &middot; Dodis&ndash;Reyzin&ndash;Smith 2004</p>
           <p class="cl-hero-desc">
-            Step through a real BCH decode turning a noisy re-reading back into the enrolled one,
-            then watch the entropy bar as the public helper data spends its parity bits and a
-            measured attack spends what is left.
+            Same device, different bits, same key &mdash; then watch a weak source give that key
+            away without a single check failing.
           </p>
         </div>
         <aside class="cl-hero-why" aria-label="Why it matters">
           <span class="cl-hero-why-label">WHY IT MATTERS</span>
           <p class="cl-hero-why-text">
-            A device key that is never stored cannot be read out of a chip that is switched off.
-            Getting there means publishing helper data, and the whole question is what that costs
-            &mdash; a number you can bound before you build, and a number a weak source can spend
-            entirely without anything failing.
+            A key that is never stored cannot be read out of a chip that is switched off. Getting
+            there means publishing helper data, and the whole question is what that costs.
           </p>
         </aside>
       </div>
 
+      <main>
       <div class="model-banner" role="note" aria-label="What is modelled">
         <span class="model-banner-label">SIMULATED SOURCE</span>
-        <p>
-          There is no physical device in this page. The cell readings come from a labelled model
-          whose parameters are on screen. The error-correcting code, the helper data and the key
-          derivation are real. Not production crypto &mdash; a teaching demo.
-        </p>
+        <div class="model-banner-body">
+          <p>
+            No physical device here: the cell readings come from a labelled model whose parameters
+            are on screen. Not production crypto &mdash; a teaching demo.
+          </p>
+          <details class="disclose model-banner-more">
+            <summary>What is real, and what is modelled</summary>
+            <div class="disclose-body">
+              <p>
+                <strong>Modelled:</strong> the cells. A browser has no physical unclonable function
+                and cannot acquire one, so each cell leans toward a value with a probability you set,
+                and each later reading flips cells at a rate you set. Real SRAM does not separate
+                those two &mdash; a strongly biased cell is also a stable one &mdash; so a real
+                deployment measures per-cell error rates across temperature, voltage and age.
+              </p>
+              <p>
+                <strong>Real:</strong> everything downstream of the readings. The BCH encoder and
+                decoder are implemented here and verified over the whole space of the smallest code;
+                the helper data is the code-offset construction of Juels&ndash;Wattenberg and
+                Dodis&ndash;Reyzin&ndash;Smith; the key derivation is HKDF-SHA-256 from WebCrypto,
+                pinned to the RFC 5869 test vectors.
+              </p>
+            </div>
+          </details>
+        </div>
       </div>
 
-      <nav class="tabs" aria-label="Exhibits">
-        <div class="tab-list" role="tablist" aria-label="Drift Key exhibits">
-          <button class="tab-btn" role="tab" id="tab-source" aria-selected="true" aria-controls="panel-source" data-panel="source">Noisy Source</button>
-          <button class="tab-btn" role="tab" id="tab-enroll" aria-selected="false" aria-controls="panel-enroll" data-panel="enroll" tabindex="-1">Enrol &amp; Reproduce</button>
-          <button class="tab-btn" role="tab" id="tab-reliability" aria-selected="false" aria-controls="panel-reliability" data-panel="reliability" tabindex="-1">Measured Reliability</button>
-          <button class="tab-btn" role="tab" id="tab-cost" aria-selected="false" aria-controls="panel-cost" data-panel="cost" tabindex="-1">What the Helper Costs</button>
-          <button class="tab-btn" role="tab" id="tab-reuse" aria-selected="false" aria-controls="panel-reuse" data-panel="reuse" tabindex="-1">Enrolling Twice</button>
-          <button class="tab-btn" role="tab" id="tab-context" aria-selected="false" aria-controls="panel-context" data-panel="context" tabindex="-1">Why It Matters</button>
+      <div id="scenario-slot"></div>
+
+      <nav class="mode-switch" aria-label="How to read this lab">
+        <div class="seg" role="group" aria-label="Mode">
+          <button class="seg-btn" type="button" id="mode-guided" aria-pressed="true">Guided tour</button>
+          <button class="seg-btn" type="button" id="mode-explore" aria-pressed="false">Explore freely</button>
         </div>
+        <p class="mode-note" id="mode-note">Five steps, about ninety seconds. One thing to press at a time.</p>
       </nav>
 
-      <main>
-        <section id="panel-source" class="panel" role="tabpanel" aria-labelledby="tab-source" tabindex="0"></section>
-        <section id="panel-enroll" class="panel" role="tabpanel" aria-labelledby="tab-enroll" tabindex="0" hidden></section>
-        <section id="panel-reliability" class="panel" role="tabpanel" aria-labelledby="tab-reliability" tabindex="0" hidden></section>
-        <section id="panel-cost" class="panel" role="tabpanel" aria-labelledby="tab-cost" tabindex="0" hidden></section>
-        <section id="panel-reuse" class="panel" role="tabpanel" aria-labelledby="tab-reuse" tabindex="0" hidden></section>
-        <section id="panel-context" class="panel" role="tabpanel" aria-labelledby="tab-context" tabindex="0" hidden></section>
+      <div id="guided"></div>
+
+      <div id="explore" hidden>
+        <nav class="tabs" aria-label="Exhibits">
+          <p class="tab-group-label" id="group-back">Can the key come back?</p>
+          <div class="tab-list" role="tablist" aria-label="Drift Key exhibits">
+            <button class="tab-btn" role="tab" id="tab-source" aria-selected="true" aria-controls="panel-source" data-panel="source">Noisy Source</button>
+            <button class="tab-btn" role="tab" id="tab-enroll" aria-selected="false" aria-controls="panel-enroll" data-panel="enroll" tabindex="-1">Enrol &amp; Reproduce</button>
+            <button class="tab-btn" role="tab" id="tab-reliability" aria-selected="false" aria-controls="panel-reliability" data-panel="reliability" tabindex="-1">Measured Reliability</button>
+            <span class="tab-group-sep" aria-hidden="true"></span>
+            <button class="tab-btn" role="tab" id="tab-cost" aria-selected="false" aria-controls="panel-cost" data-panel="cost" tabindex="-1">What the Helper Costs</button>
+            <button class="tab-btn" role="tab" id="tab-reuse" aria-selected="false" aria-controls="panel-reuse" data-panel="reuse" tabindex="-1">Enrolling Twice</button>
+            <span class="tab-group-sep" aria-hidden="true"></span>
+            <button class="tab-btn" role="tab" id="tab-context" aria-selected="false" aria-controls="panel-context" data-panel="context" tabindex="-1">Why It Matters</button>
+          </div>
+          <p class="tab-group-legend">
+            The first three ask <strong>can the key come back?</strong> The next two ask
+            <strong>is it still secret?</strong> The last is <strong>where this is used</strong>.
+          </p>
+        </nav>
+
+        <div class="panels">
+          <section id="panel-source" class="panel" role="tabpanel" aria-labelledby="tab-source" tabindex="0"></section>
+          <section id="panel-enroll" class="panel" role="tabpanel" aria-labelledby="tab-enroll" tabindex="0" hidden></section>
+          <section id="panel-reliability" class="panel" role="tabpanel" aria-labelledby="tab-reliability" tabindex="0" hidden></section>
+          <section id="panel-cost" class="panel" role="tabpanel" aria-labelledby="tab-cost" tabindex="0" hidden></section>
+          <section id="panel-reuse" class="panel" role="tabpanel" aria-labelledby="tab-reuse" tabindex="0" hidden></section>
+          <section id="panel-context" class="panel" role="tabpanel" aria-labelledby="tab-context" tabindex="0" hidden></section>
+        </div>
+      </div>
       </main>
 
       <footer class="scripture-footer">

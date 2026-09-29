@@ -74,6 +74,30 @@ the readings — the error-correcting code, the helper data, the key derivation 
 
 ## Exhibits
 
+There are two ways in. **Guided tour** is the default: five scenes, one thing to press at a time,
+each scene's result directly beneath its own action, and the whole argument in about ninety
+seconds. **Explore freely** is the six-panel lab below, with every control.
+
+A persistent **scenario bar** names the settings every exhibit is reading — `Healthy source`,
+`Too noisy`, `Weak source`, or `Custom` — with the code, the re-read noise, the residual bound, and
+a Reset. Before it existed, pressing the weak-source button on one panel silently re-tuned the
+device for every other one, and a visitor who moved between exhibits afterwards was reading a
+different experiment without being told.
+
+### The guided tour
+
+1. **Same device, different reading.** Read the modelled device twice; a few cells change.
+2. **So hash it?** Hash both readings with real SHA-256; two completely different keys.
+3. **The key comes back.** The BCH decode, one operation at a time on a single stage that changes
+   rather than a column of cards that grows — `w`, `h = w ⊕ c`, `w'`, `h ⊕ w'`, the repair, the
+   recovered reading, the key — ending on the two keys compared byte for byte.
+4. **Reliability has a boundary.** Push the re-read past the correction radius and watch the real
+   decoder refuse, or mis-correct.
+5. **Correct is not secret.** A weak source. Reproduction stays green and the attacker gets the
+   key from published data alone: **The device succeeded. The attacker did too.**
+
+### The full lab
+
 1. **Noisy Source.** Power the modelled device up twice and watch the cells disagree. Then hash
    both readings with real SHA-256 and watch the two digests diverge completely — the problem the
    rest of the lab exists to solve.
@@ -205,7 +229,7 @@ npm test             # 175 unit tests (Vitest)
 npm run build        # typecheck + production build
 npx playwright install chromium
 npm run test:a11y    # the WCAG 2.1 AA gate, desktop and 380px
-npm run test:claims  # 21 claims tests, incl. the negative-claim fixture
+npm run test:claims  # 28 claims tests, incl. the negative claim and the experience assertions
 ```
 
 ## Related Demos
@@ -224,7 +248,7 @@ npm run test:claims  # 21 claims tests, incl. the negative-claim fixture
 
 ## Build & Verify
 
-**198 tests, all passing: 175 unit (Vitest), 21 claims and 2 accessibility scans (Playwright).**
+**205 tests, all passing: 175 unit (Vitest), 28 claims and 2 accessibility scans (Playwright).**
 
 Known-answer and exhaustive verification:
 
@@ -238,6 +262,17 @@ Known-answer and exhaustive verification:
 | `syn(h) = syn(w)`, and that a coset has exactly 2^k members, by enumeration | `src/crypto/sketch.test.ts` |
 | Measured reliability within four standard errors of the binomial prediction, seeded | `src/model/trials.test.ts` |
 | The attacker module's imports, parsed from its own source (invariant I5) | `src/model/attacker.test.ts` |
+
+**The experience is tested too.** Correctness tests could not see the defect that mattered most:
+every claim in the suite passed while the strongest result in the lab rendered **1003px below the
+button that produced it** in a 900px viewport, with the scroll position unchanged — a visitor could
+press the marquee control and watch nothing happen. So reachability is now a claim like any other.
+`e2e/claims.spec.ts` asserts that the first action is visible without scrolling on desktop and
+within 1.25 viewports at 390px; that guided mode never offers more than one primary action at a
+time; that every guided action leaves its result inside the viewport; that the punchline arrives in
+five primary actions; that the scenario bar names the shared state and Reset restores it; and that
+colour tracks system integrity rather than the return value — the device reproducing its own key is
+green, the attacker deriving that same key is an alarm, from the same component.
 
 **Accessibility.** `npm run build && npm run test:a11y` must pass with **zero** violations, at
 1280px and at 380px, and it gates the deploy. The gate is the honest form: it injects nothing into
@@ -258,6 +293,10 @@ bundle before its owning test was checked:
 | `residual = m + (n − k)` instead of `m − (n − k)` | 5 unit tests and 2 claims tests fail |
 | Degrade `--control-border` below 3:1 | the a11y gate fails naming every tab at 1.90:1 |
 | Degrade `--text-dim` below 4.5:1 | the a11y gate fails with axe violations at every driven state |
+
+The gate went on earning its place after that. Restructuring the page into two modes moved `<main>`
+inside the container that starts hidden, and the gate failed the arrival state on
+`landmark-one-main` before a human would have noticed the document had no main landmark at all.
 
 One mutation left everything green: removing the decoder's final "is the corrected word really a
 codeword?" check. Under §4.1c that is evidence about the *source*, so it was measured rather than
