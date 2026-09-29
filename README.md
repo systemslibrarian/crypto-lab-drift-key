@@ -178,9 +178,12 @@ of the public helper data.
 
 - **SRAM PUF key generation.** The power-up pattern of an uninitialised SRAM block is a per-chip
   fingerprint. Guajardo, Kumar, Schrijen and Tuyls (CHES 2007) proposed deriving a device key from
-  it with helper data, and the approach is shipped commercially. Published constructions for this
-  setting typically concatenate a repetition code with a BCH code, so a cheap inner stage cleans up
-  the bulk of the noise and the BCH stage handles the rest.
+  it with helper data, and the approach is shipped commercially. The expensive part is the decoder,
+  so hardware designs put a cheap inner code — a repetition code, say — in front of the BCH stage to
+  clean up the bulk of the noise before it runs; Bösch, Guajardo, Sadeghi, Shokrollahi and Tuyls
+  (CHES 2008) is the reference for making helper-data key extraction efficient on an FPGA. **This
+  lab implements a single BCH stage and claims no particular published parameter set** — the
+  concatenated construction is named as a design idea, not as a surveyed norm.
 - **Biometric template protection.** Juels and Wattenberg's original motivation. Feature extraction
   — turning a scan into a bit string whose Hamming distance means something — is its own hard
   problem and is not modelled here.

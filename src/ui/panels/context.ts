@@ -28,9 +28,12 @@ export function renderContextPanel(root: HTMLElement, store: Store): void {
         {},
         'The power-up pattern of an uninitialised SRAM block is a per-chip fingerprint. Guajardo, ' +
           'Kumar, Schrijen and Tuyls (CHES 2007) proposed using it with helper data to derive a ' +
-          'device key, and the approach is shipped commercially. A published construction for this ' +
-          'setting typically concatenates a repetition code with a BCH code, so the repetition ' +
-          'stage cleans up the bulk of the noise cheaply and the BCH stage handles the rest.',
+          'device key, and the approach is shipped commercially. The expensive part is the ' +
+          'decoder, so hardware designs put a cheap inner code — a repetition code, say — in front ' +
+          'of the BCH stage to clean up the bulk of the noise before it runs; Bösch, Guajardo, ' +
+          'Sadeghi, Shokrollahi and Tuyls (CHES 2008) is the reference for making helper-data key ' +
+          'extraction efficient on an FPGA. This lab implements a single BCH stage and claims no ' +
+          'particular published parameter set.',
       ),
       h('dt', {}, 'Biometric template protection'),
       h(
@@ -138,6 +141,10 @@ export function renderContextPanel(root: HTMLElement, store: Store): void {
         ref(
           'Guajardo, J., Kumar, S. S., Schrijen, G.-J. and Tuyls, P. (2007). "FPGA Intrinsic PUFs and Their Use for IP Protection." CHES 2007, LNCS 4727.',
           'SRAM power-up state as a PUF, with helper data for key generation. The application this lab models.',
+        ),
+        ref(
+          'Bösch, C., Guajardo, J., Sadeghi, A.-R., Shokrollahi, J. and Tuyls, P. (2008). "Efficient Helper Data Key Extractor on FPGAs." CHES 2008, pp. 181–197.',
+          'Making this practical in hardware. Cited for the topic rather than for a parameter set: no concatenated code and no published parameters are claimed on this page, because this lab implements a single BCH stage.',
         ),
         ref(
           'Krawczyk, H. and Eronen, P. (2010). "HMAC-based Extract-and-Expand Key Derivation Function (HKDF)." RFC 5869.',
