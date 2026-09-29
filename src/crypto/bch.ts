@@ -86,7 +86,15 @@ export function makeBch(m: number, t: number): BchCode {
   return { m, n, k, t, gf, gen, label: `BCH(${n}, ${k}), t = ${t}` };
 }
 
-/** The codes offered in the UI. `k` is computed by `makeBch`, never hard-coded. */
+/**
+ * The codes offered in the UI. `k` is computed by `makeBch`, never hard-coded.
+ *
+ * [extension] point — a second code FAMILY goes here. Golay and Reed-Muller are
+ * the obvious comparisons, and both would want a different decoder, so the
+ * shape to preserve is that `decode` is reached through `BchCode` rather than
+ * called directly: a `Code` interface carrying `encode`, `decode` and
+ * `syndromeBits` would let `sketch.ts` stay untouched.
+ */
 export const CODE_CHOICES: ReadonlyArray<{ id: string; m: number; t: number }> = Object.freeze([
   { id: 'bch-15-7', m: 4, t: 2 },
   { id: 'bch-31-16', m: 5, t: 3 },

@@ -69,6 +69,15 @@ export interface Enrollment {
   readonly secret: EnrollmentSecret;
 }
 
+/**
+ * [extension] point — a REUSABLE fuzzy extractor would be a second pair of
+ * enrol/reproduce functions against these same types, not a flag on these ones.
+ * The reuse panel already reads only `PublicHelper`, so it could show both
+ * constructions side by side; what must not happen is a mode that changes what
+ * `enroll` means, because the narrow claim the reuse panel makes is about THIS
+ * construction and would silently become a claim about a different one.
+ */
+
 /** A uniformly random message, from the platform CSPRNG. */
 export function randomMessageBits(k: number): BitVec {
   const bytes = new Uint8Array(k);

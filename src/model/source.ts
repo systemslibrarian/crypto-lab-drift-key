@@ -43,6 +43,17 @@ export const MIN_SKEW = 0.5;
 export const MAX_SKEW = 0.99;
 
 /**
+ * [extension] point — a debiasing stage belongs between this module and
+ * `sketch.ts`, not inside either. A von Neumann-style debiaser consumes cell
+ * PAIRS and emits fewer, more uniform bits, so it changes the block length the
+ * code has to cover; keeping it as its own transform over a `BitVec` is what
+ * lets the entropy accounting in `stats.ts` be told about the new length
+ * instead of being rewritten. A biometric-style source model would slot in at
+ * the same boundary, replacing `powerUpReading` while leaving `pMax` as the
+ * public characterisation the attacker gets.
+ */
+
+/**
  * Build a device. `seed` fixes which cells lean which way and their relative
  * strengths; `skew` scales those strengths. Moving the skew slider therefore
  * makes the SAME device more or less predictable rather than swapping it for a
