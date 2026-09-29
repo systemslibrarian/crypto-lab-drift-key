@@ -162,6 +162,27 @@ function renderResults(
   );
   const totalTrials = points.reduce((sum, p) => sum + p.trials, 0);
 
+  // How far the worst point sits from the prediction, in standard errors.
+  //
+  // This, and not the count of intervals that happen to bracket the prediction,
+  // is what the headline verdict is keyed on. A 95% interval misses one time in
+  // twenty BY CONSTRUCTION, so across ten points about half of all correct runs
+  // contain one miss; a verdict that went amber for it would be reporting the
+  // dice rather than the arithmetic. Four standard errors is a 1-in-15,000 tail
+  // per point and still catches any systematic error above a few percent --
+  // which is what a broken decoder, a mis-stated t, or a flip generator that is
+  // not Bernoulli would produce. The interval count stays on screen as a figure
+  // in its own right.
+  const worstZ = Math.max(
+    ...points.map((p) => {
+      const variance = p.predicted * (1 - p.predicted);
+      // A prediction pinned at 0 or 1 has no sampling spread to measure
+      // against, so it is held to exact agreement within one trial instead.
+      if (variance <= 0) return Math.abs(p.measured - p.predicted) * p.trials;
+      return Math.abs(p.measured - p.predicted) / Math.sqrt(variance / p.trials);
+    }),
+  );
+
   out.append(
     chart({
       id: 'reliability',
@@ -197,19 +218,23 @@ function renderResults(
     }),
     verdict(
       'reliability-agreement',
-      inside === points.length ? 'pass' : 'warn',
-      inside === points.length
-        ? 'Every measured interval contains the prediction'
-        : `${inside} of ${points.length} measured intervals contain the prediction`,
+      worstZ <= 4 ? 'pass' : 'warn',
+      worstZ <= 4
+        ? 'The measurement agrees with the prediction everywhere it was taken'
+        : 'A measured point sits further from the prediction than sampling explains',
       {
-        detail: `largest gap ${(Math.abs(worst.measured - worst.predicted) * 100).toFixed(1)} points, at BER ${(worst.ber * 100).toFixed(0)}%`,
+        detail:
+          `worst point ${worstZ.toFixed(1)} standard errors out, at BER ${(worst.ber * 100).toFixed(0)}% ` +
+          `(${(Math.abs(worst.measured - worst.predicted) * 100).toFixed(1)} points); ` +
+          `${inside} of ${points.length} 95% intervals contain the prediction`,
       },
     ),
     h(
       'div',
       { class: 'claim-row' },
       claim('reliability-trials', 'Reproductions run', String(totalTrials), `${points[0].trials} at each of ${points.length} rates`),
-      claim('reliability-intervals', 'Intervals containing the prediction', `${inside} / ${points.length}`, '95% Wilson'),
+      claim('reliability-intervals', 'Intervals containing the prediction', `${inside} / ${points.length}`, '95% Wilson; about 1 in 20 misses by design'),
+      claim('reliability-worst-z', 'Worst point, in standard errors', worstZ.toFixed(1), 'agreement is judged on this'),
       claim(
         'reliability-miscorrections',
         'Mis-corrections',

@@ -21,7 +21,7 @@ import {
   subcodeCodewords,
 } from '../../crypto/reuse';
 import { enroll, randomMessageBits, randomSalt } from '../../crypto/sketch';
-import { makePrng, randomSeed } from '../../model/prng';
+import { makePrng, type Prng, randomSeed } from '../../model/prng';
 import { makeDevice, powerUpReading } from '../../model/source';
 import { bitGrid } from '../bitgrid';
 import {
@@ -123,7 +123,11 @@ async function renderBody(out: HTMLElement, store: Store): Promise<void> {
   const rng = makePrng(seed);
   const device = makeDevice(code.n, seed, 0.5);
   const w = powerUpReading(device, rng);
-  const wSecond = mode === 'exact' ? w : flipOne(w, [2, 11], rng.int(2));
+  // A noisy re-read, flipping exactly t cells -- inside the radius on purpose.
+  // Past it the XOR of the two helpers is undecodable and the exhibit shows
+  // nothing at all, which is a real outcome but a different one; `reuse.test.ts`
+  // covers it.
+  const wSecond = mode === 'exact' ? w : flipCells(w, rng, code.t);
 
   const dim = construction === 'broken' ? 4 : code.k;
   const codewords = construction === 'broken' ? subcodeCodewords(code, dim) : allCodewords(code);
@@ -294,9 +298,15 @@ function bigCodeView(store: Store): HTMLElement {
   );
 }
 
-function flipOne(word: Uint8Array, positions: number[], extra: number): Uint8Array {
+/** Flip exactly `count` distinct cells, chosen from the panel's own seed. */
+function flipCells(word: Uint8Array, rng: Prng, count: number): Uint8Array {
   const out = Uint8Array.from(word);
-  for (const p of positions) out[p % word.length] ^= 1;
-  if (extra) out[(positions[0] + 5) % word.length] ^= 1;
+  const chosen = new Set<number>();
+  while (chosen.size < Math.min(count, word.length)) {
+    const i = rng.int(word.length);
+    if (chosen.has(i)) continue;
+    chosen.add(i);
+    out[i] ^= 1;
+  }
   return out;
 }
