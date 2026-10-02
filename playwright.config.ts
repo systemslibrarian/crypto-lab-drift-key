@@ -22,7 +22,7 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? 'list' : [['list'], ['html', { open: 'never' }]],
   use: {
-    baseURL: 'http://localhost:4663/crypto-lab-drift-key/',
+    baseURL: 'http://localhost:4715/crypto-lab-drift-key/',
     colorScheme: 'dark', // dark is the only theme
   },
   projects: [
@@ -36,8 +36,8 @@ export default defineConfig({
     // passes green against source that no longer compiles. That silently
     // invalidates mutation checking, which is the only way we prove a test has
     // teeth. With the build in front, a compile error aborts the run instead.
-    command: 'npm run build && npm run preview -- --port 4663 --strictPort',
-    url: 'http://localhost:4663/crypto-lab-drift-key/',
+    command: 'npm run build && npm run preview -- --port 4715 --strictPort',
+    url: 'http://localhost:4715/crypto-lab-drift-key/',
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
   },
