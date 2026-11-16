@@ -10,7 +10,8 @@
  *
  * The counter that says so is counted, not asserted: every candidate source
  * word is enumerated and tested. The broken variant beside it — a codeword
- * drawn from half the code — exists so that counter can be seen to MOVE.
+ * drawn from a dimension-4 subcode, 16 of the code's 128 codewords — exists so
+ * that counter can be seen to MOVE.
  */
 
 import { allCodewords, codeById, SMALL_CODE_ID } from '../../crypto/bch';
@@ -82,7 +83,7 @@ export function renderReusePanel(root: HTMLElement, store: Store): void {
           construction = 'correct';
           renderReusePanel(root, store);
         }, 'con-correct'),
-        segButton('Codeword from half the code (broken)', construction === 'broken', () => {
+        segButton('Codeword from a 16-word subcode (broken)', construction === 'broken', () => {
           construction = 'broken';
           renderReusePanel(root, store);
         }, 'con-broken'),

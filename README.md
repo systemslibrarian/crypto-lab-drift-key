@@ -120,8 +120,9 @@ different experiment without being told.
 5. **Enrolling Twice.** Two helpers for one source. Exactly: `h1 XOR h2 = c1 XOR c2`, a codeword —
    the reading cancels. With a noisy re-read the XOR exposes *which cells flipped*, not what they
    hold. The "bits of the reading the second helper added" counter is **counted, not asserted**:
-   every candidate is enumerated. A deliberately broken variant — drawing the codeword from half
-   the code — makes that same counter move, which is what makes the zero a result.
+   every candidate is enumerated. A deliberately broken variant — drawing the codeword from a
+   16-word subcode (dimension 4 of the code's 7, one eighth of its 128 codewords) — makes that
+   same counter move, which is what makes the zero a result.
 6. **Why It Matters.** SRAM PUF device keys, biometric template protection, the honesty list, and
    the references.
 
@@ -142,7 +143,8 @@ different experiment without being told.
   construction, not a property of it.
 - **The random codeword is not uniform over the whole code.** Then the `n − k` bound does not
   apply, because that was its hypothesis. The Enrolling Twice panel ships this as a marked, broken
-  variant: reproduction still works perfectly and the first helper costs 11 bits instead of 8.
+  variant: reproduction still works perfectly and the first helper costs 11 bits (15 − 4) instead
+  of 8 (15 − 7).
 - **Helper-data manipulation.** An attacker who can *modify* the published helper data is outside
   the model this page demonstrates. The code-offset sketch provides no integrity for it.
 - **Repeated enrolment in a stronger model.** Boyen (CCS 2004) showed ordinary fuzzy-extractor

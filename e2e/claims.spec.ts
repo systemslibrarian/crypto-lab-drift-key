@@ -593,7 +593,7 @@ test.describe('enrolling twice', () => {
     expect(Number(await readClaim(page, 'bits-learned'))).toBe(0);
   });
 
-  test('THE COUNTER MOVES: a codeword from half the code narrows the reading further', async ({ page }) => {
+  test('THE COUNTER MOVES: a codeword from a 16-word subcode narrows the reading further', async ({ page }) => {
     await boot(page);
     await openTab(page, 'Enrolling Twice', '#panel-reuse');
     const correctBefore = Number(await readClaim(page, 'candidates-before'));

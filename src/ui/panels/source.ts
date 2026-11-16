@@ -94,7 +94,8 @@ export function renderSourcePanel(root: HTMLElement, store: Store): void {
       {},
       'A hash is the obvious move: it turns any input into a fixed-size secret-looking string. ' +
         'It is also the wrong move here, and for exactly the reason that makes it a good hash. ' +
-        'One flipped cell changes every output bit.',
+        'One flipped cell changes about half of the output bits, unpredictably, so the two ' +
+        'digests have nothing usable in common.',
     ),
     hashRow,
   );

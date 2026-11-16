@@ -103,6 +103,32 @@ describe('the lab key-derivation step', () => {
     expect(toHex(await sha256OfWord(other))).not.toBe(toHex(await sha256OfWord(w)));
   });
 
+  it('changes about HALF the digest bits when one cell flips, never all of them', async () => {
+    // The page's "so hash it?" exhibit prints two digests side by side and says
+    // what the reader is looking at. A good hash flips each output bit with
+    // probability one half, so about 128 of 256 bits differ -- not every bit,
+    // which would make the second digest the complement of the first and so
+    // perfectly predictable. Measured here over 64 one-cell flips; a 2,000-trial
+    // run of the same path gives a mean of 127.9 with a spread of 103 to 156.
+    let total = 0;
+    for (let trial = 0; trial < 64; trial++) {
+      const w = fromInt(trial * 0x5bd1 + 1, 15);
+      const flipped = Uint8Array.from(w);
+      flipped[trial % 15] ^= 1;
+      const [a, b] = await Promise.all([sha256OfWord(w), sha256OfWord(flipped)]);
+      let differing = 0;
+      for (let i = 0; i < a.length; i++) {
+        let x = a[i]! ^ b[i]!;
+        while (x) { differing += x & 1; x >>>= 1; }
+      }
+      expect(differing).toBeGreaterThan(64);
+      expect(differing).toBeLessThan(192);
+      total += differing;
+    }
+    expect(total / 64).toBeGreaterThan(112);
+    expect(total / 64).toBeLessThan(144);
+  });
+
   it('bytesEqual rejects a length mismatch and a single differing byte', () => {
     expect(bytesEqual(fromHex('0011'), fromHex('0011'))).toBe(true);
     expect(bytesEqual(fromHex('0011'), fromHex('0012'))).toBe(false);

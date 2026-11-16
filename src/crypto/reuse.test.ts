@@ -110,7 +110,7 @@ describe('the bits-of-w-learned counter, by enumeration', () => {
     expect(count.bitsLearnedFromSecond).toBe(0);
   });
 
-  it('is a MEASUREMENT: a codeword drawn from half the code makes it move', async () => {
+  it('is a MEASUREMENT: a codeword drawn from a 16-word subcode makes it move', async () => {
     // The broken variant. C' has dimension 4 instead of 7, so the first helper
     // narrows w to 16 candidates rather than 128 -- 11 bits lost where the
     // construction promises 8. Reproduction is unaffected, which is the lesson.
