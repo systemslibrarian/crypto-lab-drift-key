@@ -93,7 +93,17 @@ export function binomialAtMost(n: number, p: number, t: number): number {
  * 1 - P(Binomial(n, ber) <= t), with no fitted parameter.
  */
 export function predictedFailureRate(n: number, ber: number, t: number): number {
-  return 1 - binomialAtMost(n, ber, t);
+  // Summing the complementary event directly preserves very small positive
+  // failure probabilities. Subtracting a rounded CDF from 1 turned BCH(255,
+  // 131), t=18 at BER=0.5% into an impossible (zero-probability) failure.
+  if (t >= n) return 0;
+  if (t < 0) return 1;
+  if (ber <= 0) return 0;
+  if (ber >= 1) return 1;
+  const tail = binomialAtMost(n, 1 - ber, n - t - 1);
+  // An interior Bernoulli rate gives a possible but non-certain failure.
+  // Preserve that distinction even when a tail rounds to a floating endpoint.
+  return Math.min(1 - Number.EPSILON / 2, Math.max(Number.MIN_VALUE, tail));
 }
 
 /** log2 of the number of words within Hamming distance t of a fixed word. */

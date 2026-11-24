@@ -363,8 +363,14 @@ test.describe('the measured sweeps agree with the predictions', () => {
       // the log-space algorithm the source uses.
       const ber = Number(berText.replace('%', '')) / 100;
       const expected = 1 - binomialAtMostDirect(n, ber, t);
-      const shown = predicted.startsWith('<') ? 0 : Number(predicted.replace('%', '')) / 100;
-      expect(Math.abs(shown - expected)).toBeLessThan(0.002);
+      if (predicted.startsWith('<')) {
+        expect(expected).toBeLessThan(Number(predicted.slice(1).replace('%', '')) / 100);
+      } else if (predicted.startsWith('>')) {
+        expect(expected).toBeGreaterThan(Number(predicted.slice(1).replace('%', '')) / 100);
+      } else {
+        const shown = Number(predicted.replace('%', '')) / 100;
+        expect(Math.abs(shown - expected)).toBeLessThan(0.002);
+      }
     }
 
     // The headline verdict is keyed on standard errors, not on whether every
@@ -910,5 +916,155 @@ test.describe('the experience', () => {
       await inViewport(page, '[data-verdict="weak-source-headline"]'),
       'the weak-source result is off screen after its own button was pressed',
     ).toBe(true);
+  });
+});
+
+// Review regressions: public conclusions must follow the current experiment,
+// including delayed calculations and failed or incomplete measurement replies.
+test.describe('student review regressions', () => {
+  test('small positive failure probabilities remain possible on the displayed lesson', async ({ page }) => {
+    await boot(page);
+    await openTab(page, 'Enrol & Reproduce', '#panel-enroll');
+    await page.locator('#code-select').selectOption('bch-255-131');
+    await expect(page.locator('[data-claim="code-params"]')).toContainText('255, 131');
+    await page.locator('#ber-slider').fill('0.005');
+    await expect(page.locator('[data-claim="predicted-failure"]')).toHaveText('< 0.01%');
+    await page.locator('#ber-slider').fill('0');
+    await expect(page.locator('[data-claim="predicted-failure"]')).toHaveText('0%');
+  });
+
+  test('the guided helper step states the syndrome leakage', async ({ page }) => {
+    await bootGuided(page);
+    await page.locator('#guided-read').click();
+    await page.locator('#scene-next').click();
+    await page.locator('#guided-hash').click();
+    await expect(page.locator('[data-verdict="guided-hash"]')).toBeVisible();
+    await page.locator('#scene-next').click();
+    await page.locator('#guided-step-next').click();
+    await expect(page.locator('.stage-caption')).toContainText('reveals its 63-bit syndrome');
+    await expect(page.locator('.stage-caption')).not.toContainText('masks the reading completely');
+  });
+
+  test('the skew setting is distinguished from the actual mean cell bias', async ({ page }) => {
+    await boot(page);
+    await openTab(page, 'What the Helper Costs', '#panel-cost');
+    await page.locator('#skew-slider').fill('0.99');
+    await expect(page.locator('label[for="skew-slider"]')).toContainText('before per-cell spread and clipping');
+    const actual = Number(await readClaim(page, 'mean-cell-bias'));
+    expect(actual).toBeGreaterThan(0.8);
+    expect(actual).toBeLessThan(0.98);
+  });
+
+  test('late measurement replies cannot relabel old-code results after a code change', async ({ page }) => {
+    await page.addInitScript(() => {
+      const NativeWorker = Worker;
+      const held: Array<() => void> = [];
+      Object.assign(window, { heldMeasurements: held });
+      window.Worker = class extends NativeWorker {
+        addEventListener(type: string, listener: EventListenerOrEventListenerObject | null, options?: boolean | AddEventListenerOptions): void {
+          if (!listener) return;
+          if (type !== 'message' || typeof listener !== 'function') { super.addEventListener(type, listener, options); return; }
+          super.addEventListener(type, (event: Event) => {
+            const message = (event as MessageEvent).data;
+            if (message.kind === 'reliability-done' || message.kind === 'attack-done') held.push(() => listener.call(this, event));
+            else listener.call(this, event);
+          }, options);
+        }
+      };
+    });
+    await boot(page);
+    await openTab(page, 'Measured Reliability', '#panel-reliability');
+    await page.locator('#trials-select').selectOption('200');
+    await page.locator('#run-reliability').click();
+    await page.waitForFunction(() => (window as unknown as { heldMeasurements: unknown[] }).heldMeasurements.length > 0);
+    await openTab(page, 'Enrol & Reproduce', '#panel-enroll');
+    await page.locator('#code-select').selectOption('bch-15-7');
+    await expect(page.locator('[data-claim="code-params"]')).toContainText('15, 7');
+    await page.evaluate(() => { for (const finish of (window as unknown as { heldMeasurements: Array<() => void> }).heldMeasurements.splice(0)) finish(); });
+    await openTab(page, 'Measured Reliability', '#panel-reliability');
+    await expect(page.locator('[data-table="reliability"]')).toHaveCount(0);
+    await expect(page.locator('[data-verdict="reliability-agreement"]')).toHaveCount(0);
+    await expect(page.locator('#run-reliability')).toBeEnabled();
+  });
+
+  test('reset clears attack measurements from the previous device even when the code is unchanged', async ({ page }) => {
+    await boot(page);
+    await openTab(page, 'What the Helper Costs', '#panel-cost');
+    await page.locator('#run-attack-sweep').click();
+    await expect(page.locator('[data-table="attack"]')).toBeVisible({ timeout: 90_000 });
+    await page.locator('#scenario-reset').click();
+    await expect(page.locator('[data-table="attack"]')).toHaveCount(0);
+    await expect(page.locator('[data-verdict="entropy-gap"]')).toHaveCount(0);
+    await expect(page.locator('#run-attack-sweep')).toBeEnabled();
+  });
+
+  test('a worker startup failure is reported and a new sweep can be retried', async ({ page }) => {
+    await page.addInitScript(() => {
+      const NativeWorker = Worker;
+      let first = true;
+      window.Worker = class extends NativeWorker {
+        postMessage(message: unknown, options?: Transferable[] | StructuredSerializeOptions): void {
+          if (first) {
+            first = false;
+            queueMicrotask(() => this.dispatchEvent(new ErrorEvent('error', { message: 'injected worker startup failure' })));
+          } else if (Array.isArray(options)) super.postMessage(message, options);
+          else super.postMessage(message, options);
+        }
+      };
+    });
+    await boot(page);
+    await openTab(page, 'Measured Reliability', '#panel-reliability');
+    await page.locator('#trials-select').selectOption('200');
+    await page.locator('#run-reliability').click();
+    await expect(page.locator('[data-verdict="reliability-error"]')).toContainText('injected worker startup failure');
+    await expect(page.locator('#run-reliability')).toBeEnabled();
+    await page.locator('#run-reliability').click();
+    await expect(page.locator('[data-table="reliability"]')).toBeVisible({ timeout: 90_000 });
+    await expect(page.locator('[data-verdict="reliability-error"]')).toHaveCount(0);
+  });
+
+  test('an empty attack sweep cannot support a conclusion about where secrecy ends', async ({ page }) => {
+    await page.addInitScript(() => {
+      const NativeWorker = Worker;
+      window.Worker = class extends NativeWorker {
+        postMessage(message: { requestId: number; kind: string }): void {
+          queueMicrotask(() => this.dispatchEvent(new MessageEvent('message', {
+            data: { requestId: message.requestId, kind: 'attack-done', points: [] },
+          })));
+        }
+      };
+    });
+    await boot(page);
+    await openTab(page, 'What the Helper Costs', '#panel-cost');
+    await page.locator('#run-attack-sweep').click();
+    await expect(page.locator('[data-verdict="attack-sweep-error"]')).toContainText('Incomplete or invalid attack measurements');
+    await expect(page.locator('[data-verdict="entropy-gap"]')).toHaveCount(0);
+    await expect(page.locator('#run-attack-sweep')).toBeEnabled();
+  });
+
+  test('even one observed failure at zero noise fails the model-agreement check', async ({ page }) => {
+    await page.addInitScript(() => {
+      const NativeWorker = Worker;
+      window.Worker = class extends NativeWorker {
+        addEventListener(type: string, listener: EventListenerOrEventListenerObject | null, options?: boolean | AddEventListenerOptions): void {
+          if (!listener) return;
+          if (type !== 'message' || typeof listener !== 'function') { super.addEventListener(type, listener, options); return; }
+          super.addEventListener(type, (event: Event) => {
+            const message = (event as MessageEvent).data;
+            if (message.kind === 'reliability-done') {
+              const zero = message.points[0];
+              Object.assign(zero, { successes: zero.trials - 1, decodeFailures: 1, misCorrections: 0, measured: 1 / zero.trials, lo: 0, hi: 1 });
+            }
+            listener.call(this, event);
+          }, options);
+        }
+      };
+    });
+    await boot(page);
+    await openTab(page, 'Measured Reliability', '#panel-reliability');
+    await page.locator('#trials-select').selectOption('200');
+    await page.locator('#run-reliability').click();
+    await expect(page.locator('[data-verdict="reliability-agreement"]')).toHaveAttribute('data-result', 'warn', { timeout: 90_000 });
+    await expect(page.locator('[data-verdict="reliability-agreement"]')).toContainText('impossible under this model, at BER 0%');
   });
 });

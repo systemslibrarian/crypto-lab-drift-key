@@ -11,7 +11,7 @@
  * The counter that says so is counted, not asserted: every candidate source
  * word is enumerated and tested. The broken variant beside it — a codeword
  * drawn from a dimension-4 subcode, 16 of the code's 128 codewords — exists so
- * that counter can be seen to MOVE.
+ * the FIRST helper’s greater loss can be measured. The second-helper count stays zero.
  */
 
 import { allCodewords, codeById, SMALL_CODE_ID } from '../../crypto/bch';
@@ -125,9 +125,8 @@ async function renderBody(out: HTMLElement, store: Store): Promise<void> {
   const device = makeDevice(code.n, seed, 0.5);
   const w = powerUpReading(device, rng);
   // A noisy re-read, flipping exactly t cells -- inside the radius on purpose.
-  // Past it the XOR of the two helpers is undecodable and the exhibit shows
-  // nothing at all, which is a real outcome but a different one; `reuse.test.ts`
-  // covers it.
+  // Past it the XOR can be rejected or mis-corrected, so it no longer reliably
+  // identifies the true noise pattern. The control here stays within the radius.
   const wSecond = mode === 'exact' ? w : flipCells(w, rng, code.t);
 
   const dim = construction === 'broken' ? 4 : code.k;
@@ -266,8 +265,8 @@ async function renderBody(out: HTMLElement, store: Store): Promise<void> {
         'p',
         {},
         'None of that is demonstrated here, and the XOR above is not evidence for or against it. ' +
-          'What is shown is one specific thing: for independent noise and independent uniform ' +
-          'codewords, the XOR of two helpers reveals the noise pattern and nothing about the ' +
+          'What is shown is one specific thing: for independent noise within the correction radius and independent uniform ' +
+          'codewords, decoding the XOR of two helpers reveals the noise pattern and adds nothing about the ' +
           'reading. A page that implied otherwise would be claiming a result it has not run.',
       ),
     ),

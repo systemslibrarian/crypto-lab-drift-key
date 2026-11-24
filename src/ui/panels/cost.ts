@@ -54,6 +54,7 @@ import {
 } from '../dom';
 import { type Store } from '../state';
 import { runAttack as runAttackSweep } from '../worker-client';
+import { Measurement, validCount, validProbability } from '../measurement';
 
 /**
  * Move the visitor's attention to the result of what they just pressed.
@@ -88,14 +89,16 @@ export const NEGATIVE_CLAIM =
   'and reproduction behave identically whether the residual bound is 64 bits or 50 bits below zero.';
 
 const SKEW_POINTS = [0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 0.93, 0.96, 0.99];
-let sweepPoints: AttackPoint[] | null = null;
-let sweepCodeId = '';
-let sweeping = false;
+const measurement = new Measurement<AttackPoint>();
+
+function context(store: Store): string {
+  return JSON.stringify([store.state.codeId, store.state.deviceSeed]);
+}
 
 export function renderCostPanel(root: HTMLElement, store: Store): void {
   clear(root);
   const s = store.state;
-  if (sweepCodeId && sweepCodeId !== s.codeId) sweepPoints = null;
+  measurement.sync(context(store));
 
   const m = minEntropyBits(s.device.pMax);
   const loss = sketchLossBits(s.code.n, s.code.k);
@@ -118,7 +121,7 @@ export function renderCostPanel(root: HTMLElement, store: Store): void {
       { class: 'control-row' },
       slider({
         id: 'skew-slider',
-        label: 'Cell skew — the average of max(p, 1 − p) across cells',
+        label: 'Cell skew control — before per-cell spread and clipping',
         min: MIN_SKEW,
         max: MAX_SKEW,
         step: 0.01,
@@ -161,7 +164,7 @@ export function renderCostPanel(root: HTMLElement, store: Store): void {
       button(
         'Sweep the bias',
         () => {
-          if (!sweeping) void runSweep(root, store);
+          if (!measurement.running) void runSweep(root, store);
         },
         { id: 'run-attack-sweep' },
       ),
@@ -183,6 +186,7 @@ export function renderCostPanel(root: HTMLElement, store: Store): void {
       'div',
       { class: 'claim-row' },
       claim('min-entropy', 'Source min-entropy m', `${fmt(m, 1)} bits`, `over ${s.code.n} cells`),
+      claim('mean-cell-bias', 'Actual mean max(p, 1 − p)', fmt(s.device.pMax.reduce((a, b) => a + b, 0) / s.code.n, 3), 'after spread and clipping'),
       claim('sketch-loss', 'Sketch loss n − k', `${loss} bits`, 'fixed by the code'),
       claim(
         'residual',
@@ -211,13 +215,19 @@ export function renderCostPanel(root: HTMLElement, store: Store): void {
 
   const out = root.querySelector<HTMLElement>('#cost-out');
   if (!out) return;
+  const attackButton = root.querySelector<HTMLButtonElement>('#run-attack');
+  if (attackButton) attackButton.disabled = !s.enrollment;
 
   if (s.weakFixture) {
     out.setAttribute('data-fixture', 'weak-source');
   }
 
   renderAttack(out, store, { m, loss, residual });
-  if (sweepPoints) renderSweep(out, sweepPoints, s.code.label);
+  const sweepButton = root.querySelector<HTMLButtonElement>('#run-attack-sweep');
+  if (sweepButton) sweepButton.disabled = measurement.running;
+  if (measurement.running) out.prepend(h('p', { class: 'progress', 'data-claim': 'attack-progress' }, measurement.progress));
+  if (measurement.error) out.prepend(verdict('attack-sweep-error', 'fail', 'The sweep did not finish', { detail: measurement.error }));
+  if (measurement.points) renderSweep(out, measurement.points, s.code.label);
 
   out.append(
     h(
@@ -234,7 +244,8 @@ export function renderCostPanel(root: HTMLElement, store: Store): void {
         h(
           'tbody',
           {},
-          h('tr', {}, h('td', {}, 'The later reading drifted past the code’s radius'), h('td', {}, h('code', {}, 'DECODE_BEYOND_RADIUS'))),
+          h('tr', {}, h('td', {}, 'No codeword was found within the decoding radius'), h('td', {}, h('code', {}, 'DECODE_BEYOND_RADIUS'))),
+          h('tr', {}, h('td', {}, 'Past the enrolled codeword’s radius, but near a different codeword'), h('td', {}, 'No decoder failure — mis-correction can return the wrong key')),
           h('tr', {}, h('td', {}, 'The helper data is the wrong length'), h('td', {}, h('code', {}, 'HELPER_LENGTH_MISMATCH'))),
           h(
             'tr',
@@ -265,7 +276,9 @@ export function renderCostPanel(root: HTMLElement, store: Store): void {
       h(
         'p',
         {},
-        'The cells are independent in this model, so the most likely word is the per-cell ' +
+        'The skew control sets pMax[i] = min(1, 0.5 + (skew − 0.5) × spread[i]), with seeded ' +
+          'spread[i] in [0.5, 1.5). Its value is not the actual mean, which is shown above. ' +
+          'The cells are independent in this model, so the most likely word is the per-cell ' +
           'majority and its probability is the product of the per-cell maxima. Min-entropy, not ' +
           'Shannon entropy: what matters for a key is the probability of the single best guess, ' +
           'not the average surprise.',
@@ -297,11 +310,11 @@ export function renderCostPanel(root: HTMLElement, store: Store): void {
         h('strong', {}, 'This is not the entropy of the key. '),
         'The key comes from a separate extraction step, which has its own loss. Lemma 4.1 of the ' +
           'same paper builds a fuzzy extractor from a secure sketch plus an average-case strong ' +
-          'extractor, and universal hash functions qualify only while the output length stays ' +
-          'below the residual by twice the log of the statistical distance you will accept. That ' +
+          'extractor. For universal hashing, Lemma 2.4 gives output length ℓ ≤ residual − ' +
+          '2 log2(1/ε) + 2 for statistical distance at most ε. That ' +
           'is an information-theoretic statement about how close the key is to uniform. This lab ' +
-          'derives its key with HKDF-SHA-256 instead, which is what a real device ships and rests ' +
-          'on different assumptions. Nothing on this page claims a bit count for the key itself.',
+          'derives its key with HKDF-SHA-256 instead, a practical deterministic derivation with ' +
+          'different assumptions. Nothing on this page claims a bit count for the key itself.',
       ),
       h(
         'p',
@@ -454,6 +467,7 @@ function renderAttack(out: HTMLElement, store: Store, acct: { m: number; loss: n
   );
 
   if (s.weakFixture) {
+    const both = attack.keyMatched && reproduced;
     const headline = verdict(
         'weak-source-headline',
         attack.keyMatched && reproduced ? 'alarm' : 'warn',
@@ -461,7 +475,8 @@ function renderAttack(out: HTMLElement, store: Store, acct: { m: number; loss: n
           ? 'The device succeeded. The attacker did too.'
           : 'This run did not reach both outcomes at once',
         {
-          detail: `residual bound ${fmt(acct.residual, 1)} bits; every check the construction performs passed`,
+          detail: `residual bound ${fmt(acct.residual, 1)} bits; ` +
+            (both ? 'reproduction and the public-data attack both succeeded' : 'inspect the separate reproduction and attack results'),
         },
     );
     headline.setAttribute('data-result-anchor', '');
@@ -470,11 +485,11 @@ function renderAttack(out: HTMLElement, store: Store, acct: { m: number; loss: n
       headline,
       callout(
         'danger',
-        h('strong', {}, 'Both of those are true at the same time, and that is the point. '),
-        'The device enrolled, decoded and reproduced its key exactly as it does on a good source. ' +
-          'Every check on this page that the construction actually performs reports success. And ' +
-          'the key is already in the hands of anyone holding the published helper data, because ' +
-          `this source has ${fmt(acct.m, 1)} bits of min-entropy and the sketch costs ${acct.loss}.`,
+        h('strong', {}, both ? 'Both outcomes occurred together. ' : 'The two outcomes did not occur together in this run. '),
+        both
+          ? 'The device reproduced its key, and the measured attacker derived the same key from public data. ' +
+            `This source has ${fmt(acct.m, 1)} bits of model min-entropy; the sketch’s maximum loss is ${acct.loss} bits.`
+          : 'The lesson does not count this attempt as a demonstration of successful reproduction together with a successful attack.',
       ),
       field('Helper data — public', short(bitsToHex(s.enrollment?.pub.helper ?? new Uint8Array())), {
         id: 'fixture-helper',
@@ -488,7 +503,7 @@ function renderAttack(out: HTMLElement, store: Store, acct: { m: number; loss: n
       'caveat',
       h('strong', {}, 'The attack succeeding is consistent with the bound, not a violation of it. '),
       'The bound says the helper costs at most n − k bits. It does not promise that what is left ' +
-        'is enough — and at this bias there is nothing left for it to protect. Equally, a residual ' +
+        'is enough for an application. A residual ' +
         'at or below zero does not mean this particular attacker wins: the bound going quiet and ' +
         'the source becoming guessable are two different thresholds, and the sweep below shows how ' +
         'far apart they are.',
@@ -498,35 +513,20 @@ function renderAttack(out: HTMLElement, store: Store, acct: { m: number; loss: n
 
 async function runSweep(root: HTMLElement, store: Store): Promise<void> {
   const s = store.state;
-  const out = root.querySelector<HTMLElement>('#cost-out');
-  const btn = root.querySelector<HTMLButtonElement>('#run-attack-sweep');
-  if (!out) return;
-  sweeping = true;
-  if (btn) btn.disabled = true;
-  const progress = h('p', { class: 'progress', 'data-claim': 'attack-progress' }, 'Starting…');
-  out.prepend(progress);
-  try {
-    const points = await runAttackSweep(
-      {
-        codeId: s.codeId,
-        deviceSeed: s.deviceSeed,
-        trialSeed: 0x0b1a5,
-        skewPoints: SKEW_POINTS,
-        trialsPerPoint: 300,
-      },
-      (done, total) => {
-        progress.textContent = `${done} of ${total} enrolments attacked`;
-      },
-    );
-    sweepPoints = points;
-    sweepCodeId = s.codeId;
-    renderCostPanel(root, store);
-  } catch (error) {
-    progress.replaceWith(verdict('attack-sweep-error', 'fail', 'The sweep did not finish', { detail: String(error) }));
-  } finally {
-    sweeping = false;
-    if (btn) btn.disabled = false;
-  }
+  const params = {
+    codeId: s.codeId, deviceSeed: s.deviceSeed, trialSeed: 0x0b1a5,
+    skewPoints: SKEW_POINTS, trialsPerPoint: 300,
+  };
+  await measurement.run(context(store), async (signal, progress) => {
+    const points = await runAttackSweep(params, progress, signal);
+    if (points.length !== SKEW_POINTS.length || !points.every((p, i) =>
+      p.skew === SKEW_POINTS[i] && p.trials === params.trialsPerPoint &&
+      validCount(p.successes, p.trials) && p.measured === p.successes / p.trials &&
+      [p.measured, p.exact, p.lo, p.hi].every(validProbability) && p.lo <= p.hi &&
+      [p.minEntropy, p.loss, p.residual].every(Number.isFinite)
+    )) throw new Error('Incomplete or invalid attack measurements; no sweep conclusion is available.');
+    return points;
+  }, () => renderCostPanel(root, store));
 }
 
 function renderSweep(out: HTMLElement, points: AttackPoint[], label: string): void {
@@ -537,7 +537,7 @@ function renderSweep(out: HTMLElement, points: AttackPoint[], label: string): vo
     h('h3', {}, 'The whole bias range, measured'),
     chart({
       id: 'attack',
-      xLabel: 'Cell skew — average max(p, 1 − p)',
+      xLabel: 'Cell skew control — before per-cell spread and clipping',
       yLabel: 'Attacker success rate',
       xTicks: points.map((p) => p.skew),
       xFormat: (v) => v.toFixed(2),
@@ -587,7 +587,7 @@ function renderSweep(out: HTMLElement, points: AttackPoint[], label: string): vo
       'entropy-gap',
       'info',
       firstNegative && firstWinning
-        ? `The guarantee runs out at skew ${firstNegative.skew.toFixed(2)}; the attack starts winning at ${firstWinning.skew.toFixed(2)}`
+        ? `First sampled nonpositive bound: skew ${firstNegative.skew.toFixed(2)}; first sampled attack rate ≥ 10%: ${firstWinning.skew.toFixed(2)}`
         : 'The guarantee and the attack part company at different points on this axis',
       {
         detail: firstNegative
@@ -597,9 +597,8 @@ function renderSweep(out: HTMLElement, points: AttackPoint[], label: string): vo
     ),
     callout(
       'info',
-      'Read the two curves together. The residual crosses zero long before the attack becomes ' +
-        'practical, which is what a bound looks like when it is doing its job: it stops promising ' +
-        'well before the thing it was protecting actually breaks. A residual at zero is not a ' +
+      'The sweep samples ten settings. The 10% attack rate is a display threshold, not the first ' +
+        'possible success or a general definition of a practical attack. A residual at zero is not a ' +
         'prediction that the key is gone — it is the point past which this construction will not ' +
         'tell you either way.',
     ),

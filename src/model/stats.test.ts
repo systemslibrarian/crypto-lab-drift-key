@@ -75,6 +75,34 @@ describe('the sketch loss and the residual bound', () => {
 });
 
 describe('the binomial reliability prediction', () => {
+  it('distinguishes interior probabilities from impossible and certain failure', () => {
+    expect(predictedFailureRate(255, 0, 18)).toBe(0);
+    expect(predictedFailureRate(255, 1, 18)).toBe(1);
+    expect(predictedFailureRate(255, 0.3, 18)).toBeLessThan(1);
+    expect(predictedFailureRate(255, 0.005, 18)).toBeGreaterThan(0);
+    expect(predictedFailureRate(15, 0, -1)).toBe(1);
+    expect(predictedFailureRate(15, 1, 15)).toBe(0);
+  });
+  it.each([[15, 2], [31, 3], [63, 4], [127, 10], [255, 18]])(
+    'preserves the exact rational failure tail for n=%i, t=%i, including tiny positive rates',
+    (n, t) => {
+      // Integer counts of equally likely outcomes; no logarithms or CDF
+      // subtraction. Fixed-point division retains over 100 decimal places.
+      const scale = 10n ** 120n;
+      for (const [a, b] of [[1, 1000], [1, 200], [1, 100], [1, 25], [3, 10]]) {
+        let choose = 1n;
+        let numerator = 0n;
+        for (let j = 0; j <= n; j++) {
+          if (j > t) numerator += choose * BigInt(a) ** BigInt(j) * BigInt(b - a) ** BigInt(n - j);
+          if (j < n) choose = choose * BigInt(n - j) / BigInt(j + 1);
+        }
+        const exact = Number(numerator * scale / BigInt(b) ** BigInt(n)) / 1e120;
+        const observed = predictedFailureRate(n, a / b, t);
+        expect(observed).toBeGreaterThan(0);
+        expect(Math.abs(observed / exact - 1)).toBeLessThan(1e-10);
+      }
+    },
+  );
   it('agrees with a direct factorial computation at small n', () => {
     for (const [n, t] of [
       [15, 2],

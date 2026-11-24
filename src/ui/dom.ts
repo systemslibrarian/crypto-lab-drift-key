@@ -172,7 +172,9 @@ export function fmt(value: number, places = 2): string {
 /** A probability as a percentage, with enough resolution to read a small one. */
 export function pct(value: number): string {
   if (value === 0) return '0%';
+  if (value === 1) return '100%';
   if (value < 0.0001) return '< 0.01%';
+  if (value > 0.999) return '> 99.9%';
   return `${(value * 100).toFixed(value < 0.01 ? 3 : 1)}%`;
 }
 

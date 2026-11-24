@@ -70,6 +70,10 @@ export class Store {
   state: LabState;
   private listeners: Listener[] = [];
   private rng: Prng;
+  private enrollmentVersion = 0;
+  private reproductionVersion = 0;
+  private attackVersion = 0;
+  private fixtureVersion = 0;
 
   constructor() {
     const code = codeById(DEFAULT_CODE_ID);
@@ -127,6 +131,11 @@ export class Store {
     s.attack = null;
     s.sampleReadings = [];
     s.weakFixture = false;
+    // Retire any asynchronous result made for the previous device immediately.
+    this.enrollmentVersion++;
+    this.reproductionVersion++;
+    this.attackVersion++;
+    this.notify();
   }
 
   async setCode(codeId: string): Promise<void> {
@@ -149,20 +158,32 @@ export class Store {
   }
 
   /** Enrol: a fresh power-up reading, a uniformly random codeword, a public salt. */
-  async enrolNow(weakFixture = false): Promise<void> {
+  async enrolNow(weakFixture = false): Promise<boolean> {
     const s = this.state;
+    const version = ++this.enrollmentVersion;
+    this.reproductionVersion++;
+    this.attackVersion++;
+    if (!weakFixture) this.fixtureVersion++;
+    const code = s.code;
     const word = powerUpReading(s.device, this.rng);
-    s.enrollment = await enroll(s.code, word, randomMessageBits(s.code.k), randomSalt());
-    s.sampleReadings = [word, laterReading(word, s.ber, this.rng).reading];
-    s.weakFixture = weakFixture;
+    s.enrollment = null;
     s.reproduction = null;
     s.attack = null;
-    await this.reproduceNow();
+    s.sampleReadings = [];
+    s.weakFixture = weakFixture;
+    this.notify();
+    const enrollment = await enroll(code, word, randomMessageBits(code.k), randomSalt());
+    if (version !== this.enrollmentVersion) return false;
+    s.enrollment = enrollment;
+    s.sampleReadings = [word, laterReading(word, s.ber, this.rng).reading];
+    return this.reproduceNow();
   }
 
   async setBer(ber: number): Promise<void> {
+    this.fixtureVersion++;
     this.state.ber = ber;
     this.state.scenarioId = identifyScenario(this.state.skew, ber);
+    this.state.sampleReadings = [];
     await this.reproduceNow();
   }
 
@@ -171,20 +192,19 @@ export class Store {
    * shared device, so this goes through the same path as moving the sliders by
    * hand -- there is no second, hidden way to reach these states.
    */
-  async applyScenario(scenario: Scenario): Promise<void> {
+  async applyScenario(scenario: Scenario): Promise<boolean> {
     // The weak scenario goes through its own path because it has to reach a
     // COMPOUND state -- reproduction succeeded AND the attack won -- and at this
-    // bias one guess wins about four times in five. A single attempt would leave
-    // the lab's headline result to a coin flip roughly one visit in five.
+    // bias the success probability depends on the selected code and device model.
+    // A single attempt need not reach both outcomes.
     if (scenario.id === 'weak') {
-      await this.weakSourceFixture();
-      return;
+      return this.weakSourceFixture();
     }
     this.state.skew = scenario.skew;
     this.state.ber = scenario.ber;
     this.rebuildDevice();
     this.state.scenarioId = scenario.id;
-    await this.enrolNow(false);
+    return this.enrolNow(false);
   }
 
   /** Back to the shipped defaults, device included. */
@@ -199,13 +219,19 @@ export class Store {
   }
 
   /** Take a later reading of the same device and try to reproduce the key. */
-  async reproduceNow(): Promise<void> {
+  async reproduceNow(): Promise<boolean> {
     const s = this.state;
-    if (!s.enrollment) return;
-    const { reading, flips } = laterReading(s.enrollment.secret.sourceWord, s.ber, this.rng);
-    const attempt = await reproduce(s.code, s.enrollment.pub, reading);
-    s.reproduction = { reading, flips, attempt, verdict: judge(attempt, s.enrollment.secret) };
+    const version = ++this.reproductionVersion;
+    const enrollment = s.enrollment;
+    s.reproduction = null;
     this.notify();
+    if (!enrollment) return false;
+    const { reading, flips } = laterReading(enrollment.secret.sourceWord, s.ber, this.rng);
+    const attempt = await reproduce(s.code, enrollment.pub, reading);
+    if (version !== this.reproductionVersion || s.enrollment !== enrollment) return false;
+    s.reproduction = { reading, flips, attempt, verdict: judge(attempt, enrollment.secret) };
+    this.notify();
+    return true;
   }
 
   /**
@@ -218,22 +244,29 @@ export class Store {
    */
   private async attackOnce(enrolmentsWatched: number): Promise<AttackOutcome> {
     const s = this.state;
-    if (!s.enrollment) throw new Error('nothing enrolled to attack');
+    const enrollment = s.enrollment;
+    if (!enrollment) throw new Error('nothing enrolled to attack');
     const result = await guessKey(s.code, {
-      pub: s.enrollment.pub,
+      pub: enrollment.pub,
       model: { pMax: s.device.pMax, lean: s.device.lean },
     });
     return {
       result,
-      keyMatched: !!result.candidateKey && bytesEqual(result.candidateKey, s.enrollment.secret.key),
-      distanceToTruth: distance(result.guess, s.enrollment.secret.sourceWord),
+      keyMatched: !!result.candidateKey && bytesEqual(result.candidateKey, enrollment.secret.key),
+      distanceToTruth: distance(result.guess, enrollment.secret.sourceWord),
       enrolmentsWatched,
     };
   }
 
   async runAttack(): Promise<void> {
-    if (!this.state.enrollment) return;
-    this.state.attack = await this.attackOnce(1);
+    const enrollment = this.state.enrollment;
+    if (!enrollment) return;
+    const version = ++this.attackVersion;
+    this.state.attack = null;
+    this.notify();
+    const outcome = await this.attackOnce(1);
+    if (version !== this.attackVersion || this.state.enrollment !== enrollment) return;
+    this.state.attack = outcome;
     this.notify();
   }
 
@@ -242,14 +275,15 @@ export class Store {
    * min-entropy left. Nothing about the code, the helper data or the key
    * derivation changes — only the device.
    *
-   * At this bias one guess wins roughly four times in five, so the fixture
+   * At this bias the win probability varies with the code and device, so the fixture
    * watches enrolments until the attacker wins and REPORTS HOW MANY IT TOOK,
    * rather than either pretending the first one always works or leaving the
    * exhibit to a coin flip. The count is a measurement like any other on this
    * page. The bound exists so a bug cannot spin here for ever; reaching it
    * leaves the honest losing state on screen.
    */
-  async weakSourceFixture(): Promise<void> {
+  async weakSourceFixture(): Promise<boolean> {
+    const version = ++this.fixtureVersion;
     this.state.skew = 0.99;
     this.state.ber = 0.02;
     this.rebuildDevice();
@@ -257,12 +291,14 @@ export class Store {
     let watched = 0;
     for (let attempt = 1; attempt <= 40; attempt++) {
       watched = attempt;
-      await this.enrolNow(true);
+      if (!(await this.enrolNow(true)) || version !== this.fixtureVersion) return false;
       const outcome = await this.attackOnce(watched);
+      if (version !== this.fixtureVersion) return false;
       this.state.attack = outcome;
       if (outcome.keyMatched && this.state.reproduction?.verdict.outcome === 'reproduced') break;
     }
     this.notify();
+    return true;
   }
 }
 

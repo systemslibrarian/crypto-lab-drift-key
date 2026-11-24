@@ -2,8 +2,8 @@
 
 **Fuzzy extractors · code-offset secure sketch · BCH · HKDF-SHA-256**
 
-Turn a reading that is never the same twice into the same key every time, and see exactly how
-much secrecy the public helper data costs.
+Recover the same key from readings within the correction radius, and measure what public
+helper data costs in secrecy.
 
 **[Live demo →](https://systemslibrarian.github.io/crypto-lab-drift-key/)**
 
@@ -59,7 +59,7 @@ Three things it is **not**:
 - It is **not** the entropy of the derived key. The key comes from a further extraction step with
   its own loss. The security proof uses a strong randomness extractor (universal hashing and the
   leftover hash lemma) and gives an information-theoretic statement; this lab uses HKDF-SHA-256,
-  which is what a real device ships and rests on different assumptions. No bit count for the key
+  a practical deterministic derivation resting on different assumptions. No bit count for the key
   itself is claimed anywhere.
 - It is **not** a promise that enough is left. Bias does not make the helper leak more than
   `n − k` bits — it lowers `m`, so the same subtraction can leave nothing. The page shows the
@@ -118,11 +118,11 @@ different experiment without being told.
    showing how far apart "the bound stops promising" and "the attack starts winning" really are.
    This panel holds the negative claim (below).
 5. **Enrolling Twice.** Two helpers for one source. Exactly: `h1 XOR h2 = c1 XOR c2`, a codeword —
-   the reading cancels. With a noisy re-read the XOR exposes *which cells flipped*, not what they
-   hold. The "bits of the reading the second helper added" counter is **counted, not asserted**:
+   the reading cancels. With a re-read within the correction radius, decoding the XOR exposes *which cells flipped*,
+   not what they hold. The "bits of the reading the second helper added" counter is **counted, not asserted**:
    every candidate is enumerated. A deliberately broken variant — drawing the codeword from a
-   16-word subcode (dimension 4 of the code's 7, one eighth of its 128 codewords) — makes that
-   same counter move, which is what makes the zero a result.
+   16-word subcode (dimension 4 of the code's 7, one eighth of its 128 codewords) — raises the **first-helper** loss from 8 to 11 bits. The second-helper counter remains zero
+   in this restricted experiment; the two counters measure different things.
 6. **Why It Matters.** SRAM PUF device keys, biometric template protection, the honesty list, and
    the references.
 
@@ -133,8 +133,8 @@ different experiment without being told.
   residual bound is 64 bits or 50 below zero. Characterising a real source means measuring per-cell
   behaviour across temperature, voltage and device lifetime — there is no substitute, and nothing
   in the pipeline does it for you.
-- **The re-reading drifts past the code's radius.** The device cannot unlock. That is the correct
-  behaviour; the alternative is worse.
+- **The re-reading drifts past the code's radius.** The decoder can reject the reading or
+  mis-correct toward a different codeword. The latter returns a key, but it is the wrong one.
 - **Mis-correction.** Past the radius the decoder can land on a *different* codeword, correct
   towards it, and report success. The device derives a well-formed key that is not the right key —
   and a real device holds no copy of the enrolled reading to compare against, so it cannot tell
@@ -175,7 +175,8 @@ limitation is visible on screen in that state rather than hidden behind a disclo
 
 **Use a fuzzy extractor when** the secret you want is a measurement rather than a stored value: an
 SRAM PUF device key, a ring-oscillator or arbiter PUF, a biometric template you must not store. The
-appeal is that between power-ups there is nothing on the chip to find.
+appeal is that the key need not be stored as a digital value between power-ups. The physical
+source remains and still needs protection against measurement and modelling attacks.
 
 **Do NOT use one when:**
 
@@ -227,11 +228,11 @@ npm run dev          # http://localhost:5173/crypto-lab-drift-key/
 ```
 
 ```bash
-npm test             # 175 unit tests (Vitest)
+npm test             # 186 unit tests (Vitest)
 npm run build        # typecheck + production build
 npx playwright install chromium
 npm run test:a11y    # the WCAG 2.1 AA gate, desktop and 380px
-npm run test:claims  # 28 claims tests, incl. the negative claim and the experience assertions
+npm run test:claims  # 36 claims tests, incl. the negative claim and the experience assertions
 ```
 
 ## Related Demos
@@ -250,7 +251,7 @@ npm run test:claims  # 28 claims tests, incl. the negative claim and the experie
 
 ## Build & Verify
 
-**205 tests, all passing: 175 unit (Vitest), 28 claims and 2 accessibility scans (Playwright).**
+**224 checks: 186 unit (Vitest), 36 claims and 2 accessibility scans (Playwright).**
 
 Known-answer and exhaustive verification:
 
@@ -308,6 +309,37 @@ inconsistent locator first. The check stays, because it is the last thing standi
 "corrected" and a best guess, but the finding is recorded in `bch.ts`, asserted in `bch.test.ts`,
 and stated on the page's own failure-code table rather than letting the lab list a code it cannot
 raise.
+
+## Student-accuracy review (24 November 2026)
+
+The enrolment, reproduction and public-data attack each keep the scenario that produced them.
+Changing a code or device, changing the re-read error rate, or resetting the exercise immediately
+retires the old result; a delayed WebCrypto completion cannot restore it. Reliability and attack
+sweeps keep their own parameter snapshots. A changed source cancels the affected worker and clears
+its measurements, and worker startup failures show an error with a retry instead of pending forever.
+Missing measurement rows cannot support a sweep conclusion.
+
+The helper hides the reading **within its coset**, while revealing its syndrome. The guided path
+now states that same leakage as the entropy panel. The skew control is labelled as a parameter
+before per-cell spread and clipping, with the actual mean shown separately. Reuse explains that the
+16-word subcode raises the **first-helper** loss; the second-helper count remains zero here.
+Captions distinguish successful recovery, decoder rejection and mis-correction, including a
+weak-source attempt that did not reach both the device and attacker success states.
+
+Failure probabilities are computed directly as a binomial tail. BCH(255,131), t=18 at BER=0.5%
+has failure probability about **1.360700414635759 × 10^-16**, previously rounded to zero by
+subtracting a rounded CDF from one. The page preserves possible versus impossible and likely
+versus certain. The four-standard-error measurement check is a diagnostic, not a proof that
+sampling cannot explain an outlier; any failure at zero noise violates this model.
+
+An independent Python review verified all 32,768 received words for BCH(15,7), the five offered
+code dimensions by binary parity-check rank, 100 encoding/helper/HKDF/recovery scenarios, 55 exact
+rational binomial tails, four exhaustive biased-source entropy and attack distributions, and all
+three SHA-256 vectors read from [RFC 5869](https://www.rfc-editor.org/rfc/rfc5869).
+The source-entropy statement and extraction loss were checked against DORS's
+[January 2008 paper](https://www.cs.bu.edu/~reyzin/papers/fuzzy.pdf), including Lemma 2.4's
+`ℓ ≤ residual − 2 log2(1/ε) + 2` bound. These ideal-model entropy figures are not a claim about the
+unpredictability of this demo's seeded model generator or a measured physical device.
 
 ## Performance
 

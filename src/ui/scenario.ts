@@ -40,7 +40,7 @@ export const SCENARIOS: ReadonlyArray<Scenario> = Object.freeze([
     label: 'Too noisy',
     skew: 0.5,
     ber: 0.22,
-    blurb: 'The same source, re-read far past what the code can repair. Reproduction fails.',
+    blurb: 'A high error rate makes out-of-radius readings more likely. Inspect the actual flip count.',
   },
   {
     id: 'weak',

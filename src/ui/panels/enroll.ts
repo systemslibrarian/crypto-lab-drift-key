@@ -53,13 +53,13 @@ export function renderEnrollPanel(root: HTMLElement, store: Store): void {
 
   root.append(
     panelIntro(
-      'Enrol once, reproduce for ever',
+      'Enrol once, reproduce within the correction radius',
       'The trick is to publish something. At enrolment the device picks a random codeword from ' +
         'an error-correcting code — a word the code knows how to repair — and publishes the ' +
         'difference between that codeword and its reading. The difference is called helper data, ' +
         'and it is not secret.',
       'Later, the device reads itself again, subtracts the helper data, and hands the result to ' +
-        'the decoder. What comes back is the original codeword, because a handful of flipped ' +
+        'the decoder. Within the correction radius, what comes back is the original codeword, because flipped ' +
         'cells is exactly the kind of damage the decoder was built to undo. Subtract once more ' +
         'and the original reading is back, bit for bit, and so is the key.',
     ),
@@ -223,8 +223,9 @@ export function renderEnrollPanel(root: HTMLElement, store: Store): void {
       'p',
       {},
       `A codeword is drawn uniformly from all 2^${code.k} codewords of ${code.label}. ` +
-        'The helper data is the XOR of the reading and that codeword — which is why it looks ' +
-        'like nothing: a uniform codeword masks the reading completely, one bit at a time.',
+        'The helper data is the XOR of the reading and that codeword. It hides which member ' +
+        `of the coset was used, but reveals the reading’s ${code.n - code.k}-bit syndrome. ` +
+        'Uniform individual bits do not hide those parity relations.',
     ),
     bitGrid(c, { title: 'Random codeword c', tone: 'secret', id: 'stage-c' }),
     bitGrid(helper, { title: 'Helper data h = w XOR c — published', tone: 'public', id: 'stage-h' }),
@@ -334,7 +335,9 @@ export function renderEnrollPanel(root: HTMLElement, store: Store): void {
     stage(
       5,
       'Subtract the helper data once more',
-      h('p', {}, 'w = h XOR c. The reading is back — the whole reading, including the cells that came up differently this time.'),
+      h('p', {}, reproduction.verdict.wordMatches
+        ? 'w = h XOR c. The enrolled reading is back; the comparison below checks every bit.'
+        : 'w* = h XOR c*. The decoder returned a different codeword, so this candidate is not the enrolled reading.'),
       attempt.recoveredWord
         ? bitGrid(attempt.recoveredWord, { title: 'Recovered reading', tone: 'secret', id: 'stage-recovered' })
         : null,
@@ -377,8 +380,8 @@ export function renderEnrollPanel(root: HTMLElement, store: Store): void {
             'The decoder succeeded and was wrong: the damage carried the offset closer to a ' +
               'different codeword than the one enrolled, so it repaired towards that one. The ' +
               'device gets a perfectly well-formed 32-byte key that simply is not the right key. ' +
-              'This is a distinct outcome from a decode failure, and nothing in the construction ' +
-              'tells the device which of the two it just had.',
+              'A decode failure is reported, but a mis-correction is not. Without an additional ' +
+              'confirmation mechanism, the device cannot distinguish this wrong key from a correct reproduction.',
           )
         : null,
     );

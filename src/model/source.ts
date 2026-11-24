@@ -31,7 +31,7 @@ import { makePrng, type Prng } from './prng';
 export interface DeviceModel {
   readonly n: number;
   readonly seed: number;
-  /** Skew parameter that produced it: the average of `pMax`, in [0.5, 1]. */
+  /** Skew control, in [0.5, 0.99]; spread and clipping change the actual mean. */
   readonly skew: number;
   /** pMax[i] = max(p_i, 1 - p_i), the probability cell i shows its lean. */
   readonly pMax: Float64Array;

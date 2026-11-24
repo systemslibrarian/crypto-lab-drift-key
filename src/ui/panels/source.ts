@@ -16,7 +16,7 @@ export function renderSourcePanel(root: HTMLElement, store: Store): void {
 
   root.append(
     panelIntro(
-      'A reading that is never the same twice',
+      'A reading that can change between power-ups',
       'Some things a chip can measure about itself are almost, but not quite, repeatable. ' +
         'When an SRAM chip powers up, each of its cells settles to 0 or 1 according to tiny ' +
         'manufacturing differences — a fingerprint nobody chose and nobody wrote down. Read it ' +
@@ -143,12 +143,11 @@ export function renderSourcePanel(root: HTMLElement, store: Store): void {
         h(
           'p',
           {},
-          'Both are real techniques and both cost entropy. Majority voting over many power-ups ' +
-            'reduces the error rate but needs the device to be read many times, and it throws ' +
-            'away the cells that vote inconsistently — which are the cells carrying the most ' +
-            'entropy. Discarding unstable cells does the same thing more directly. The fuzzy ' +
-            'extractor takes the other route: keep every cell, publish enough information to ' +
-            'correct the differences, and account honestly for what publishing it costs.',
+          'Majority voting can reduce read errors at the cost of repeated measurements; it does ' +
+            'not inherently discard cells. Selecting only stable cells is a separate technique. ' +
+            'Either design needs its own source-entropy and reliability analysis. This lab keeps ' +
+            'every modelled cell, publishes information for correcting differences, and accounts ' +
+            'for the maximum secrecy cost of that helper data.',
         ),
       ),
     );

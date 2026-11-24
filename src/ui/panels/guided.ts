@@ -42,12 +42,14 @@ interface SceneState {
   done: Set<number>;
   /** Scene 3's own step, 0..6. */
   pipelineStep: number;
-  digests: { a: string; b: string } | null;
+  digests: { a: string; b: string; readings: readonly Uint8Array[] } | null;
 }
 
 const scene: SceneState = { reached: 1, current: 1, done: new Set(), pipelineStep: 0, digests: null };
+let tourVersion = 0;
 
 export function resetGuided(): void {
+  tourVersion++;
   scene.reached = 1;
   scene.current = 1;
   scene.done.clear();
@@ -64,6 +66,10 @@ const TITLES = [
 ] as const;
 
 export function renderGuided(root: HTMLElement, store: Store): void {
+  if (scene.digests && scene.digests.readings !== store.state.sampleReadings) {
+    scene.digests = null;
+    scene.done.delete(2);
+  }
   clear(root);
   root.append(rail(root, store), sceneCard(root, store));
 }
@@ -223,10 +229,12 @@ function sceneOne(body: HTMLElement, root: HTMLElement, store: Store): void {
         id: 'g1-reading-2',
       }),
     ),
-    verdict('guided-drift', 'warn', `${diff.length} of ${first.length} cells changed`, {
+    verdict('guided-drift', diff.length ? 'warn' : 'info', `${diff.length} of ${first.length} cells changed`, {
       detail: 'same device, two power-ups',
     }),
-    meaning('Close enough for error correction. Nowhere near close enough for a hash.'),
+    meaning(diff.length === 0 ? 'These readings happened to match; their hashes will match too.' :
+      diff.length <= s.code.t ? 'These readings are within the correction radius, but hashing does not repair their differences.' :
+      'These readings are beyond the correction radius. Hashing does not repair their differences either.'),
   );
 }
 
@@ -234,16 +242,19 @@ function sceneOne(body: HTMLElement, root: HTMLElement, store: Store): void {
 function sceneTwo(body: HTMLElement, root: HTMLElement, store: Store): void {
   const s = store.state;
   body.append(
-    h('p', { class: 'scene-q' }, 'A hash turns anything into a fixed-size secret. Why not just hash the reading?'),
+    h('p', { class: 'scene-q' }, 'A hash gives a fixed-size digest. Why not just hash the reading?'),
     h(
       'div',
       { class: 'scene-action' },
       button('Hash both readings', () => {
         void (async () => {
-          const [a, b] = s.sampleReadings;
+          const version = tourVersion;
+          const readings = s.sampleReadings;
+          const [a, b] = readings;
           if (!a || !b) return;
           const [da, db] = await Promise.all([sha256OfWord(a), sha256OfWord(b)]);
-          scene.digests = { a: toHex(da), b: toHex(db) };
+          if (version !== tourVersion || s.sampleReadings !== readings) return;
+          scene.digests = { a: toHex(da), b: toHex(db), readings };
           advance(root, store, 2);
         })();
       }, { variant: 'primary', id: 'guided-hash' }),
@@ -311,7 +322,7 @@ function sceneThree(body: HTMLElement, root: HTMLElement, store: Store): void {
       node: () => bitGrid(w, { title: 'Enrolled reading w', tone: 'secret', id: 'g3-w' }),
     },
     {
-      caption: `A codeword is drawn uniformly from all 2^${s.code.k} codewords, and the difference is published. A uniform codeword masks the reading completely.`,
+      caption: `A codeword is drawn uniformly from all 2^${s.code.k} codewords, and the difference is published. This hides which reading within the coset was used, but reveals its ${s.code.n - s.code.k}-bit syndrome.`,
       op: 'h = w XOR c',
       node: () => bitGrid(helper, { title: 'Helper data h — published', tone: 'public', id: 'g3-h' }),
     },
@@ -360,7 +371,11 @@ function sceneThree(body: HTMLElement, root: HTMLElement, store: Store): void {
             }),
     },
     {
-      caption: 'Subtract the helper data once more and the whole enrolled reading is back — including the cells that came up differently this time.',
+      caption: reproduction.verdict.wordMatches
+        ? 'Subtract the helper data once more and the enrolled reading is back, as the comparison confirms.'
+        : attempt.recoveredWord
+          ? 'Subtract the helper data once more. This candidate differs from the enrolled reading: the decoder mis-corrected.'
+          : 'Decoding failed, so no reading was recovered.',
       op: 'w = h XOR c',
       node: () =>
         attempt.recoveredWord
@@ -441,7 +456,8 @@ function sceneThree(body: HTMLElement, root: HTMLElement, store: Store): void {
           check: 'construction',
         },
       ),
-      meaning('Public helper data turned a reading that is never the same twice into one stable key.'),
+      meaning(outcome === 'reproduced' ? 'Public helper data repaired this re-read and reproduced the enrolled key.' :
+        'This re-read did not reproduce the enrolled key. Error correction has a bounded operating range.'),
     );
   }
 }
@@ -457,7 +473,8 @@ function sceneFour(body: HTMLElement, root: HTMLElement, store: Store): void {
       { class: 'scene-action' },
       button('Push the re-read past the correction radius', () => {
         void (async () => {
-          if (noisy) await store.applyScenario(noisy);
+          const version = tourVersion;
+          if (!noisy || !(await store.applyScenario(noisy)) || version !== tourVersion) return;
           advance(root, store, 4);
         })();
       }, { variant: 'primary', id: 'guided-break' }),
@@ -493,7 +510,9 @@ function sceneFour(body: HTMLElement, root: HTMLElement, store: Store): void {
     meaning(
       outcome === 'miscorrected'
         ? 'Past the radius the decoder can land on a different codeword and report success. The device gets a well-formed key that is simply the wrong one.'
-        : 'Error correction fixes drift only inside its operating envelope. Outside it, the decoder refuses rather than guessing.',
+        : outcome === 'reproduced'
+          ? 'Despite the high noise setting, this particular re-read stayed inside the correction radius.'
+          : 'This time the decoder refused. Beyond the enrolled codeword’s radius it can also mis-correct toward another codeword.',
     ),
     disclosure(
       'Why the boundary is exactly here, and how often it is crossed',
@@ -525,7 +544,8 @@ function sceneFive(body: HTMLElement, root: HTMLElement, store: Store): void {
         if (btn) btn.disabled = true;
         if (note) note.hidden = false;
         void (async () => {
-          if (weak) await store.applyScenario(weak);
+          const version = tourVersion;
+          if (!weak || !(await store.applyScenario(weak)) || version !== tourVersion) return;
           advance(root, store, 5);
         })();
       }, { variant: 'primary', id: 'guided-weak' }),
@@ -570,14 +590,14 @@ function sceneFive(body: HTMLElement, root: HTMLElement, store: Store): void {
         'guided-watched',
         'Enrolments the attacker watched',
         String(s.attack.enrolmentsWatched),
-        s.attack.enrolmentsWatched === 1 ? 'the first one was enough' : 'one guess wins about four times in five',
+        s.attack.enrolmentsWatched === 1 ? 'one enrolment tried' : 'tried until both outcomes occurred, up to 40',
       ),
     ),
     h(
       'div',
       { class: 'two-up' },
       verdict('guided-device', reproduced ? 'pass' : 'fail', reproduced ? 'Device: key reproduced' : 'Device: reproduction failed', {
-        detail: 'every check the construction performs passed',
+        detail: reproduced ? 'the reproduced reading and key matched' : 'the reproduced reading or key did not match',
         check: 'construction',
       }),
       verdict('guided-attacker', s.attack.keyMatched ? 'alarm' : 'pass', s.attack.keyMatched ? 'Attacker: same key, from public data' : 'Attacker: did not get the key', {
@@ -598,8 +618,8 @@ function sceneFive(body: HTMLElement, root: HTMLElement, store: Store): void {
     }),
     callout(
       'danger',
-      h('strong', {}, 'Nothing failed. '),
-      'The construction raises no code for this. It corrects errors and derives a key, and how ' +
+      h('strong', {}, both ? 'Nothing failed in reproduction. ' : 'This run did not demonstrate both outcomes together. '),
+      'The construction raises no failure code for low source entropy. It corrects errors and derives a key, and how ' +
         'much entropy the source had is a property of the device that no step in the pipeline ' +
         'measures. Reproducing the key correctly is not evidence that any secrecy is left.',
     ),
@@ -612,7 +632,8 @@ function sceneFive(body: HTMLElement, root: HTMLElement, store: Store): void {
         `The source has ${m.toFixed(1)} bits of min-entropy. Publishing the helper costs at most ` +
           `${loss} — that part is a theorem, not an estimate, and it holds for biased sources ` +
           `without modification. ${m.toFixed(1)} minus ${loss} is ${residual.toFixed(1)}, so the bound ` +
-          'guarantees nothing at all here. Bias did not make the helper leak more; it left less for ' +
+          (residual <= 0 ? 'guarantees no positive residual here. ' : 'still gives a positive source-entropy lower bound here. ') +
+          'Bias did not make the helper leak more; it left less for ' +
           'the helper to spend.',
       ),
       h(

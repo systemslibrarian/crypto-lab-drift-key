@@ -14,10 +14,9 @@ export function renderContextPanel(root: HTMLElement, store: Store): void {
     panelIntro(
       'Where a key that is never stored is worth the trouble',
       'Every device that has to prove who it is needs a key, and every key has to live somewhere. ' +
-        'Written into flash, it can be read out by anyone who can decap the chip or find a debug ' +
-        'port. Burned into fuses, it is readable under a microscope. The appeal of deriving it ' +
-        'from the chip’s own physical variation is that between power-ups there is nothing to ' +
-        'find: the key exists only while the device is running.',
+        'Deriving it from the chip’s physical variation can avoid storing a digital key between ' +
+        'power-ups. The physical source still exists and needs protection: this is a different ' +
+        'storage design, not a guarantee against physical measurement or modelling attacks.',
     ),
     h(
       'dl',
@@ -60,7 +59,8 @@ export function renderContextPanel(root: HTMLElement, store: Store): void {
       item(
         'The noise source is a model, not a device.',
         'There is no PUF in a browser. The cells come from a stated model with its parameters on ' +
-          'screen: a per-cell power-up bias and a per-read bit-error rate. Real SRAM does not ' +
+          'screen: a per-cell power-up bias and a per-read bit-error rate. Each enrolment or sample ' +
+          'pair starts with a fresh model source word; its later readings are noisy copies of that word. Real SRAM does not ' +
           'separate those two — a strongly biased cell is also a stable one — so a real deployment ' +
           'measures per-cell error rates across temperature, voltage and age. This model holds the ' +
           'two apart, which is what makes the binomial prediction exact.',
@@ -85,8 +85,9 @@ export function renderContextPanel(root: HTMLElement, store: Store): void {
         'm − (n − k) bounds the average min-entropy of the READING given the helper data. The key ' +
           'comes from a further extraction step with its own loss. The security proof uses a ' +
           'strong randomness extractor and gives an information-theoretic statement; HKDF is a ' +
-          'practical substitute resting on different assumptions. No bit count for the key itself ' +
-          'is claimed anywhere on this page.',
+          'practical substitute resting on different assumptions. These entropy figures describe ' +
+          'the ideal independent-cell model, not the unpredictability of the seeded demo generator. ' +
+          'No bit count for the key itself is claimed anywhere on this page.',
       ),
       item(
         'Enrolling twice does not reveal the reading through the XOR of the helpers — and that is a narrow claim.',

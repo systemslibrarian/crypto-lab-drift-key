@@ -26,19 +26,21 @@ import {
 } from '../dom';
 import { type Store } from '../state';
 import { runReliability } from '../worker-client';
+import { Measurement, validCount, validProbability } from '../measurement';
 
 const BER_POINTS = [0, 0.01, 0.02, 0.04, 0.06, 0.08, 0.1, 0.13, 0.16, 0.2];
 let trialsPerPoint = 400;
-let lastPoints: ReliabilityPoint[] | null = null;
-let lastCodeId = '';
-let running = false;
+const measurement = new Measurement<ReliabilityPoint>();
+
+function context(store: Store): string {
+  const s = store.state;
+  return JSON.stringify([s.codeId, s.deviceSeed, s.skew]);
+}
 
 export function renderReliabilityPanel(root: HTMLElement, store: Store): void {
   clear(root);
   const s = store.state;
-  if (lastCodeId && lastCodeId !== s.codeId) {
-    lastPoints = null;
-  }
+  measurement.sync(context(store));
 
   root.append(
     panelIntro(
@@ -65,7 +67,7 @@ export function renderReliabilityPanel(root: HTMLElement, store: Store): void {
       button(
         'Run the sweep',
         () => {
-          if (running) return;
+          if (measurement.running) return;
           void runSweep(root, store);
         },
         { variant: 'primary', id: 'run-reliability' },
@@ -83,15 +85,24 @@ export function renderReliabilityPanel(root: HTMLElement, store: Store): void {
 
   const out = root.querySelector<HTMLElement>('#reliability-out');
   if (!out) return;
+  const runButton = root.querySelector<HTMLButtonElement>('#run-reliability');
+  if (runButton) runButton.disabled = measurement.running;
+  if (measurement.running) {
+    out.append(h('p', { class: 'progress', 'data-claim': 'reliability-progress' }, measurement.progress));
+    return;
+  }
+  if (measurement.error) {
+    out.append(verdict('reliability-error', 'fail', 'The sweep did not finish', { detail: measurement.error }));
+  }
 
-  if (!lastPoints) {
+  if (!measurement.points) {
     out.append(
       callout('info', `Press Run the sweep to measure ${BER_POINTS.length * trialsPerPoint} reproductions.`),
       predictionOnly(s.code.n, s.code.t, s.code.label),
     );
     return;
   }
-  renderResults(out, lastPoints, s.code.label, s.code.n, s.code.t, s.ber);
+  renderResults(out, measurement.points, s.code.label, s.code.n, s.code.t, s.ber);
 }
 
 function predictionOnly(n: number, t: number, label: string): HTMLElement {
@@ -107,46 +118,27 @@ function predictionOnly(n: number, t: number, label: string): HTMLElement {
     ],
     summary:
       `Predicted key-failure rate for ${label} against bit-error rate, before any measurement. ` +
-      points.map((p) => `at ${(p.x * 100).toFixed(0)} percent, ${(p.y * 100).toFixed(1)} percent`).join('; ') + '.',
+      points.map((p) => `at ${(p.x * 100).toFixed(0)} percent, ${pct(p.y)}`).join('; ') + '.',
   });
 }
 
 async function runSweep(root: HTMLElement, store: Store): Promise<void> {
   const s = store.state;
-  const out = root.querySelector<HTMLElement>('#reliability-out');
-  const runButton = root.querySelector<HTMLButtonElement>('#run-reliability');
-  if (!out) return;
-  running = true;
-  if (runButton) runButton.disabled = true;
-  clear(out);
-  const progress = h('p', { class: 'progress', 'data-claim': 'reliability-progress' }, 'Starting…');
-  out.append(progress);
-
-  try {
-    const points = await runReliability(
-      {
-        codeId: s.codeId,
-        deviceSeed: s.deviceSeed,
-        skew: s.skew,
-        trialSeed: 0x0b1a5,
-        berPoints: BER_POINTS,
-        trialsPerPoint,
-      },
-      (done, total) => {
-        progress.textContent = `${done} of ${total} reproductions run`;
-      },
-    );
-    lastPoints = points;
-    lastCodeId = s.codeId;
-    clear(out);
-    renderResults(out, points, s.code.label, s.code.n, s.code.t, s.ber);
-  } catch (error) {
-    clear(out);
-    out.append(verdict('reliability-error', 'fail', 'The sweep did not finish', { detail: String(error) }));
-  } finally {
-    running = false;
-    if (runButton) runButton.disabled = false;
-  }
+  const params = {
+    codeId: s.codeId, deviceSeed: s.deviceSeed, skew: s.skew,
+    trialSeed: 0x0b1a5, berPoints: BER_POINTS, trialsPerPoint,
+  };
+  await measurement.run(context(store), async (signal, progress) => {
+    const points = await runReliability(params, progress, signal);
+    if (points.length !== BER_POINTS.length || !points.every((p, i) =>
+      p.ber === BER_POINTS[i] && p.trials === params.trialsPerPoint &&
+      [p.successes, p.decodeFailures, p.misCorrections].every((v) => validCount(v, p.trials)) &&
+      p.successes + p.decodeFailures + p.misCorrections === p.trials &&
+      p.measured === (p.decodeFailures + p.misCorrections) / p.trials &&
+      [p.measured, p.predicted, p.lo, p.hi].every(validProbability) && p.lo <= p.hi
+    )) throw new Error('Incomplete or invalid reliability measurements; no agreement verdict is available.');
+    return points;
+  }, () => renderReliabilityPanel(root, store));
 }
 
 function renderResults(
@@ -158,31 +150,22 @@ function renderResults(
   ber: number,
 ): void {
   const inside = points.filter((p) => p.predicted >= p.lo && p.predicted <= p.hi).length;
-  const worst = points.reduce((a, b) =>
-    Math.abs(a.measured - a.predicted) > Math.abs(b.measured - b.predicted) ? a : b,
-  );
   const totalTrials = points.reduce((sum, p) => sum + p.trials, 0);
 
-  // How far the worst point sits from the prediction, in standard errors.
-  //
-  // This, and not the count of intervals that happen to bracket the prediction,
-  // is what the headline verdict is keyed on. A 95% interval misses one time in
-  // twenty BY CONSTRUCTION, so across ten points about half of all correct runs
-  // contain one miss; a verdict that went amber for it would be reporting the
-  // dice rather than the arithmetic. Four standard errors is a 1-in-15,000 tail
-  // per point and still catches any systematic error above a few percent --
-  // which is what a broken decoder, a mis-stated t, or a flip generator that is
-  // not Bernoulli would produce. The interval count stays on screen as a figure
-  // in its own right.
-  const worstZ = Math.max(
-    ...points.map((p) => {
+  // A four-standard-error diagnostic, not a proof or an exact tail test.
+  // Wilson intervals have nominal 95% coverage; their discrete coverage and
+  // the probability of a large standardized deviation depend on n and p.
+  // Label the same point whose standardized deviation defines the verdict.
+  const scores = points.map((p) => {
       const variance = p.predicted * (1 - p.predicted);
       // A prediction pinned at 0 or 1 has no sampling spread to measure
-      // against, so it is held to exact agreement within one trial instead.
-      if (variance <= 0) return Math.abs(p.measured - p.predicted) * p.trials;
+      // against, so it is held to exact agreement.
+      if (variance <= 0) return p.measured === p.predicted ? 0 : Infinity;
       return Math.abs(p.measured - p.predicted) / Math.sqrt(variance / p.trials);
-    }),
-  );
+    });
+  const worstZ = Math.max(...scores);
+  const worst = points[scores.indexOf(worstZ)];
+  const scoreText = Number.isFinite(worstZ) ? `${worstZ.toFixed(1)} standard errors out` : 'impossible under this model';
 
   out.append(
     chart({
@@ -213,7 +196,7 @@ function renderResults(
         points
           .map(
             (p) =>
-              `at bit-error rate ${(p.ber * 100).toFixed(0)} percent, measured ${(p.measured * 100).toFixed(1)} percent against a predicted ${(p.predicted * 100).toFixed(1)} percent`,
+              `at bit-error rate ${(p.ber * 100).toFixed(0)} percent, measured ${pct(p.measured)} against a predicted ${pct(p.predicted)}`,
           )
           .join('; ') +
         '.',
@@ -230,10 +213,10 @@ function renderResults(
       worstZ <= 4 ? 'pass' : 'warn',
       worstZ <= 4
         ? 'The measurement agrees with the prediction everywhere it was taken'
-        : 'A measured point sits further from the prediction than sampling explains',
+        : 'A measured point exceeds this run’s agreement check',
       {
         detail:
-          `worst point ${worstZ.toFixed(1)} standard errors out, at BER ${(worst.ber * 100).toFixed(0)}% ` +
+          `worst point ${scoreText}, at BER ${(worst.ber * 100).toFixed(0)}% ` +
           `(${(Math.abs(worst.measured - worst.predicted) * 100).toFixed(1)} points); ` +
           `${inside} of ${points.length} 95% intervals contain the prediction`,
       },
@@ -242,8 +225,8 @@ function renderResults(
       'div',
       { class: 'claim-row' },
       claim('reliability-trials', 'Reproductions run', String(totalTrials), `${points[0].trials} at each of ${points.length} rates`),
-      claim('reliability-intervals', 'Intervals containing the prediction', `${inside} / ${points.length}`, '95% Wilson; about 1 in 20 misses by design'),
-      claim('reliability-worst-z', 'Worst point, in standard errors', worstZ.toFixed(1), 'agreement is judged on this'),
+      claim('reliability-intervals', 'Intervals containing the prediction', `${inside} / ${points.length}`, 'nominal 95% Wilson; individual intervals can miss'),
+      claim('reliability-worst-z', 'Worst point, in standard errors', Number.isFinite(worstZ) ? worstZ.toFixed(1) : 'impossible', 'four-standard-error diagnostic, not a proof'),
       claim(
         'reliability-miscorrections',
         'Mis-corrections',

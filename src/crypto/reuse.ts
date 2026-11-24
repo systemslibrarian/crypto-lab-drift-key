@@ -8,17 +8,16 @@
  *     h1 XOR h2 = (w XOR c1) XOR (w XOR c2) = c1 XOR c2,
  *
  * so w cancels and what is left is a codeword. With a noisy re-read
- * w' = w XOR e the XOR becomes c1 XOR c2 XOR e, and decoding it returns e —
+ * w' = w XOR e the XOR becomes c1 XOR c2 XOR e. When weight(e) <= t, decoding returns e —
  * WHICH CELLS FLIPPED, not what they hold. The first helper already fixed w's
  * coset, which is the whole n - k bits the syndrome can carry, so the second
  * helper adds nothing about w.
  *
  * "Adds nothing" is measured rather than asserted. `enumerateCandidates` counts
  * the candidate set for w before and after the second helper, over every
- * codeword, and reports the difference in bits. That counter is not a constant:
- * the deliberately broken variant below — drawing the codeword from a SUBCODE
- * instead of the whole code — makes it move, which is how the correct case's
- * zero can be read as a result.
+ * codeword, and reports the difference in bits. The broken variant draws from a SUBCODE and changes the first-helper cost:
+ * 11 bits instead of 8. In this restricted reuse experiment the second helper
+ * still adds zero bits; it is a different counter.
  *
  * What this does NOT show: Boyen (CCS 2004) proves that ordinary
  * fuzzy-extractor security can fail under repeated enrolment in stronger
@@ -33,7 +32,7 @@ import { type BitVec, equal, weight, xor } from './bits';
 export interface ReuseSyndromeView {
   readonly syndrome1: BitVec;
   readonly syndrome2: BitVec;
-  /** True when the two enrolments saw the identical reading. */
+  /** True when the two readings have the same syndrome (not necessarily identical). */
   readonly syndromesEqual: boolean;
   /** h1 XOR h2. */
   readonly xorWord: BitVec;
